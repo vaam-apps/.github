@@ -160,7 +160,21 @@ jobs:
           MARKER="<!-- vaam-apps:issue-governance -->"
           if [ "$STATUS" = "pass" ]; then
             echo "::notice title=Issue governance::Conforms to the $KIND template."
-            [ "$ENFORCE" = "true" ] && gh issue edit "$ISSUE" --repo "$REPO" --remove-label "$LABEL" 2>/dev/null || true
+            [ "$ENFORCE" != "true" ] && exit 0
+            gh issue edit "$ISSUE" --repo "$REPO" --remove-label "$LABEL" 2>/dev/null || true
+
+            # Clearing the label is not enough. An earlier failing run leaves a
+            # comment listing what was missing, and returning here left that
+            # comment standing on an issue that now conforms — telling every
+            # reader the opposite of the truth, with the label already gone so
+            # nothing contradicted it. Rewrite the comment in place rather than
+            # deleting it, so the trail of "this was checked" survives.
+            EXISTING=$(gh api "repos/$REPO/issues/$ISSUE/comments" --jq \
+              "[.[] | select(.body | contains(\"$MARKER\"))] | .[0].id // empty")
+            if [ -n "$EXISTING" ]; then
+              gh api -X PATCH "repos/$REPO/issues/comments/$EXISTING" \
+                -f body="$(printf '%s\n\nThis %s now meets the [ai-governance](https://adorsys-gis.github.io/ai-governance/) work-item template. Re-checked automatically when the issue was last edited.\n' "$MARKER" "$KIND")" >/dev/null
+            fi
             exit 0
           fi
 
