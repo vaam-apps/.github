@@ -59,32 +59,43 @@ jobs:
           client-id: ${{ secrets.app-client-id }}
           private-key: ${{ secrets.app-private-key }}
 
-      # TEMPORARY DIAGNOSTIC. The upload 404s while a user token gets 422 on the
-      # same endpoint, so the repository is fine and the App token is not. This
-      # asks the token directly, because nothing else can: an installation token
-      # cannot be minted outside a workflow without handling the private key.
-      - name: What can this token actually reach?
+      # TEMPORARY DIAGNOSTIC — remove before merge.
+      #
+      # The previous probe POSTed {} and read 422 as "authorised". That was
+      # wrong: GitHub validates the body before the permission, so 422 says
+      # nothing about auth. This posts a REAL minimal SARIF with each token in
+      # turn, same request, same run, and prints status and body — the only
+      # comparison that isolates the credential.
+      - name: A/B the SARIF upload — App token vs GITHUB_TOKEN
         env:
-          TOKEN: ${{ steps.app.outputs.token }}
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          GH_DEFAULT: ${{ github.token }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
         run: |
-          probe() {
-            printf '  %-46s %s\n' "$1" \
-              "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" \
-                 -H 'Accept: application/vnd.github+json' "${@:2}")"
+          # shellcheck disable=SC2016  # $schema is literal JSON, not a shell var
+          sarif=$(printf '%s' '{"$schema":"https://json.schemastore.org/sarif-2.1.0.json","version":"2.1.0","runs":[{"tool":{"driver":{"name":"vaam-probe","informationUri":"https://github.com/vaam-apps","rules":[]}},"results":[]}]}' | gzip -c | base64 -w0)
+          body=$(printf '{"commit_sha":"%s","ref":"%s","sarif":"%s","tool_name":"vaam-probe"}' "$SHA" "$REF" "$sarif")
+
+          try() {
+            echo "  --- $1 ---"
+            code=$(curl -s -o /tmp/out.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $2" -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/sarifs" \
+              --data "$body")
+            echo "    HTTP $code"
+            sed 's/^/    /' /tmp/out.json | head -6
           }
-          probe "GET /installation/repositories"  https://api.github.com/installation/repositories
-          probe "GET this repo"                   "https://api.github.com/repos/${GITHUB_REPOSITORY}"
-          probe "GET code-scanning/analyses"      "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/analyses"
-          probe "POST code-scanning/sarifs (422 = ok)" -X POST -d '{}' \
-                "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/sarifs"
-          # codeql-action also reads the workflow run it is uploading for, which
-          # needs the Actions permission. The App does not hold it, and GitHub
-          # answers an unauthorised App with 404 rather than 403 — which is
-          # exactly the Not Found the upload reports.
-          probe "GET actions/runs/<this run>"     "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          echo "  --- app identity behind this token ---"
-          curl -s -H "Authorization: Bearer $TOKEN" https://api.github.com/installation/repositories \
-            | head -c 200 || true
+          try "App token"    "$APP_TOKEN"
+          try "GITHUB_TOKEN" "$GH_DEFAULT"
+
+          echo "  --- what each token says it is ---"
+          for pair in "App:$APP_TOKEN" "Default:$GH_DEFAULT"; do
+            n=${pair%%:*}; tk=${pair#*:}
+            echo "    $n -> $(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tk" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/alerts") on GET alerts"
+          done
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
