@@ -89,12 +89,12 @@ Anything not listed in scope must be clarified before implementation.
 
 ## 6. Source of Truth
 
-The following sources define the real intent of this epic:
+The following sources define the real intent of this epic. Prefer the repository's own architecture document (one per repo) or an ADR over a chat log, a ticket restating itself, or an AI-generated summary — an architecture doc is reviewed and kept current; those are not:
 
+* Architecture document / ADR: [link]
 * Product decision: [link]
 * Customer request / stakeholder input: [link]
 * Incident / bug / operational evidence: [link]
-* Architecture decision record: [link]
 * Design / mockup: [link]
 * Compliance / security requirement: [link]
 
@@ -128,14 +128,11 @@ Each assumption must be validated, rejected, or converted into a risk before del
 
 ## 9. Constraints
 
-We must respect:
+arc42/CPSA groups constraints into technical, organizational, and conventions — state what applies to this epic:
 
-* Technical constraints: [details]
-* Security constraints: [details]
-* Compliance constraints: [details]
-* Timeline constraints: [details]
-* Dependency constraints: [details]
-* Operational constraints: [details]
+* Technical: [technology, platform, integration, or security constraints]
+* Organizational: [timeline, budget, team, or dependency constraints]
+* Conventions: [compliance, coding, or architecture-decision constraints]
 
 ---
 
@@ -147,17 +144,19 @@ We must respect:
 | [Risk 2] | Low / Medium / High | Low / Medium / High | [Mitigation] |
 | [Risk 3] | Low / Medium / High | Low / Medium / High | [Mitigation] |
 
+SSDLC: does this epic open a new trust boundary, external interface, or store of PII/secrets? If so, a threat model (e.g. STRIDE) is required before implementation starts. [yes/no — link the threat model if yes]
+
 ---
 
-## 11. Non-Functional Requirements
+## 11. Non-Functional Requirements (Quality Attributes)
 
-This epic must consider:
+This epic must consider these quality attributes (ISO/IEC 25010, per arc42/CPSA §10). Where a goal is measurable, state it as a quality scenario — stimulus, response, response measure:
 
-* Performance: [expectation]
-* Security: [expectation]
-* Reliability: [expectation]
+* Performance efficiency: [expectation or scenario]
+* Security: [expectation or scenario]
+* Reliability: [expectation or scenario]
 * Observability: [logs, metrics, traces]
-* Maintainability: [expectation]
+* Maintainability: [expectation or scenario]
 * Accessibility: [if applicable]
 * Data privacy: [if applicable]
 

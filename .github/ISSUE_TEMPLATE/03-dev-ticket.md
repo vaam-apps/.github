@@ -59,13 +59,13 @@ If the developer cannot explain this intent, the ticket is not ready.
 
 ## 4. Source of Truth
 
-This ticket comes from:
+This ticket comes from — prefer the repository's own architecture document (one per repo) or an ADR over a chat log, a ticket restating itself, or an AI-generated summary:
 
+* Architecture document / ADR: [link]
 * Epic / Story: [link]
 * Product decision: [link]
 * Bug report / incident: [link]
 * Customer request: [link]
-* Architecture decision: [link]
 * Technical investigation: [link]
 * Security requirement: [link]
 
@@ -133,17 +133,20 @@ Relevant files, services, modules, or systems:
 * [File/service/module 2]
 * [File/service/module 3]
 
-Important technical notes:
+Important technical notes and known constraints (arc42/CPSA §2 — technical, organizational, conventions):
 
-* [Note 1]
-* [Note 2]
-* [Note 3]
+* [Note or constraint 1]
+* [Note or constraint 2]
+* [Note or constraint 3]
 
-Known constraints:
+Security impact (SSDLC — check anything this ticket touches):
 
-* [Constraint 1]
-* [Constraint 2]
-* [Constraint 3]
+* [ ] Authentication / authorization
+* [ ] Secrets or credentials
+* [ ] PII or other sensitive data
+* [ ] A new or changed external interface (API, webhook, import/export)
+
+Unchecked means none apply. Any box checked makes security review mandatory in the Reviewer Checklist below.
 
 ---
 

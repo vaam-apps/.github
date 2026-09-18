@@ -56,14 +56,14 @@ We need to change this because:
 
 ## 4. Source of Truth
 
-This story is based on:
+This story is based on — prefer the repository's own architecture document (one per repo) or an ADR over a chat log, a ticket restating itself, or an AI-generated summary:
 
+* Architecture document / ADR: [link]
 * Customer / user request: [link]
 * Product decision: [link]
 * Design: [link]
 * Incident / bug report: [link]
 * Data / metric: [link]
-* Architecture decision: [link]
 
 If the source of truth is missing, the story must not enter sprint planning.
 
@@ -83,10 +83,10 @@ If the source of truth is missing, the story must not enter sprint planning.
 * [ ] Given [failure condition], when [action], then [error handling behavior].
 * [ ] Given [permission/security condition], when [action], then [access behavior].
 
-### Non-Functional Criteria
+### Non-Functional Criteria (Quality Attributes)
 
-* [ ] Performance expectation: [details]
-* [ ] Security expectation: [details]
+* [ ] Performance efficiency, as a quality scenario where measurable (stimulus → response → response measure): [details]
+* [ ] Security — does this touch authn/authz, secrets, PII, or an external interface?: [details]
 * [ ] Logging / observability expectation: [details]
 * [ ] Accessibility expectation: [details, if applicable]
 * [ ] Compatibility expectation: [details]
@@ -139,6 +139,8 @@ Suggested approach:
 * [Technical note 1]
 * [Technical note 2]
 * [Technical note 3]
+
+Constraints this approach must respect (arc42/CPSA §2 — technical, organizational, conventions): [details]
 
 These notes are guidance, not unquestionable truth.
 
