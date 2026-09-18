@@ -77,17 +77,46 @@ jobs:
           build-mode: none
           token: ${{ steps.app.outputs.token }}
 
+      # upload: false, then upload by hand — for the same reason as trivy.yml.
+      # analyze's own upload PUTs to /code-scanning/analysis, an Actions-internal
+      # endpoint that refuses a GitHub App installation token with 404. The
+      # public POST /code-scanning/sarifs accepts it. The category is baked into
+      # the SARIF's automationDetails by analyze, so it survives the hand-off.
       - uses: github/codeql-action/analyze@977e6ceaea7361825998245d787fa3b4d6b9e5df # codeql-bundle-v2.27.0
         with:
           category: /language:${{ matrix.language }}
-          token: ${{ steps.app.outputs.token }}
+          upload: false
+          output: sarif-results
 
-      - name: Explain an upload failure
-        if: failure()
+      - name: Upload SARIF as the App
+        env:
+          TOKEN: ${{ steps.app.outputs.token }}
+          REF: ${{ github.event.pull_request.head.ref && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.ref }}
+          SHA: ${{ github.sha }}
         run: |
-          echo "::error title=CodeQL::SARIF upload failed. A 'Not Found' here means the App token"
-          echo "did not resolve, not that the repository is missing. A 403 means the App lacks"
-          echo "Code scanning alerts: write." 
+          set -euo pipefail
+          shopt -s nullglob
+          found=0
+          for f in sarif-results/*.sarif; do
+            found=1
+            payload=$(jq -nc --arg sha "$SHA" --arg ref "$REF" \
+              --arg sarif "$(gzip -c "$f" | base64 -w0)" \
+              '{commit_sha:$sha, ref:$ref, sarif:$sarif, tool_name:"CodeQL"}')
+            code=$(curl -sS -o /tmp/u.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/sarifs" \
+              --data-binary @- <<<"$payload")
+            if [ "$code" != "202" ]; then
+              echo "::error title=CodeQL::$f upload returned HTTP $code"; cat /tmp/u.json; exit 1
+            fi
+            echo "::notice title=CodeQL::$f accepted ($(jq -r .id /tmp/u.json))"
+          done
+          if [ "$found" = "0" ]; then
+            echo "::error title=CodeQL::analyze produced no SARIF in sarif-results/"; exit 1
+          fi
+
 
   docs:
     if: inputs.docs-globs != ''

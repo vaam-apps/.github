@@ -59,44 +59,6 @@ jobs:
           client-id: ${{ secrets.app-client-id }}
           private-key: ${{ secrets.app-private-key }}
 
-      # TEMPORARY DIAGNOSTIC — remove before merge.
-      #
-      # The previous probe POSTed {} and read 422 as "authorised". That was
-      # wrong: GitHub validates the body before the permission, so 422 says
-      # nothing about auth. This posts a REAL minimal SARIF with each token in
-      # turn, same request, same run, and prints status and body — the only
-      # comparison that isolates the credential.
-      - name: A/B the SARIF upload — App token vs GITHUB_TOKEN
-        env:
-          APP_TOKEN: ${{ steps.app.outputs.token }}
-          GH_DEFAULT: ${{ github.token }}
-          REF: ${{ github.ref }}
-          SHA: ${{ github.sha }}
-        run: |
-          # shellcheck disable=SC2016  # $schema is literal JSON, not a shell var
-          sarif=$(printf '%s' '{"$schema":"https://json.schemastore.org/sarif-2.1.0.json","version":"2.1.0","runs":[{"tool":{"driver":{"name":"vaam-probe","informationUri":"https://github.com/vaam-apps","rules":[]}},"results":[]}]}' | gzip -c | base64 -w0)
-          body=$(printf '{"commit_sha":"%s","ref":"%s","sarif":"%s","tool_name":"vaam-probe"}' "$SHA" "$REF" "$sarif")
-
-          try() {
-            echo "  --- $1 ---"
-            code=$(curl -s -o /tmp/out.json -w '%{http_code}' -X POST \
-              -H "Authorization: Bearer $2" -H 'Accept: application/vnd.github+json' \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/sarifs" \
-              --data "$body")
-            echo "    HTTP $code"
-            sed 's/^/    /' /tmp/out.json | head -6
-          }
-          try "App token"    "$APP_TOKEN"
-          try "GITHUB_TOKEN" "$GH_DEFAULT"
-
-          echo "  --- what each token says it is ---"
-          for pair in "App:$APP_TOKEN" "Default:$GH_DEFAULT"; do
-            n=${pair%%:*}; tk=${pair#*:}
-            echo "    $n -> $(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tk" \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/alerts") on GET alerts"
-          done
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -114,19 +76,48 @@ jobs:
           output: trivy.sarif
           exit-code: "0"
 
-      - uses: github/codeql-action/upload-sarif@977e6ceaea7361825998245d787fa3b4d6b9e5df # codeql-bundle-v2.27.0
+      # Uploaded with a direct API call, not github/codeql-action/upload-sarif.
+      #
+      # That action does not use the public SARIF endpoint: it PUTs to
+      # /repos/:owner/:repo/code-scanning/analysis, an Actions-internal route
+      # that does not accept a GitHub App installation token and answers 404.
+      # No permission grant changes that — it is the wrong credential class for
+      # that endpoint, not an under-privileged one.
+      #
+      # The public POST /code-scanning/sarifs accepts the App token and creates
+      # a real analysis (verified: HTTP 202 with both the App token and
+      # GITHUB_TOKEN, side by side in one job). So the org requirement that
+      # everything authenticate as the App is met by calling the documented
+      # endpoint directly.
+      #
+      # What is given up versus the action: client-side SARIF validation, the
+      # fingerprint injection that de-duplicates alerts across runs, and the
+      # processing-status wait. Findings still reach the Security tab.
+      - name: Upload SARIF as the App
         if: inputs.upload-sarif
-        with:
-          sarif_file: trivy.sarif
-          category: trivy-fs
-          token: ${{ steps.app.outputs.token }}
-          # The upload itself works — an analysis lands on the PR ref every time.
-          # What 404s is the processing poll the action runs afterwards, and it
-          # reports that as a token-permission error, which it is not: the same
-          # token passes every probe including POST to this very endpoint.
-          # Not waiting means the findings still reach the Security tab; we just
-          # do not block the job on GitHub finishing its own ingestion.
-          wait-for-processing: false
+        env:
+          TOKEN: ${{ steps.app.outputs.token }}
+          REF: ${{ github.event.pull_request.head.ref && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          payload=$(jq -nc --arg sha "$SHA" --arg ref "$REF" \
+            --arg sarif "$(gzip -c trivy.sarif | base64 -w0)" \
+            '{commit_sha:$sha, ref:$ref, sarif:$sarif, tool_name:"Trivy"}')
+
+          code=$(curl -sS -o /tmp/upload.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/sarifs" \
+            --data-binary @- <<<"$payload")
+
+          if [ "$code" != "202" ]; then
+            echo "::error title=Trivy::SARIF upload returned HTTP $code"
+            cat /tmp/upload.json
+            exit 1
+          fi
+          echo "::notice title=Trivy::SARIF accepted ($(jq -r .id /tmp/upload.json))"
 
       - name: Gate
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -139,11 +130,3 @@ jobs:
           format: table
           exit-code: "1"
 
-      - name: Explain an upload failure
-        if: failure()
-        run: |
-          echo "::error title=Trivy::SARIF upload failed. Two different causes look alike here:"
-          echo "  'Not Found' (404)  -> the App token did not resolve. Check the App holds"
-          echo "                        Code scanning alerts: write, AND that the installation"
-          echo "                        approved it — changing the App only requests it."
-          echo "  'Resource not accessible by integration' (403) -> permission genuinely absent." 
