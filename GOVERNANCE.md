@@ -99,29 +99,23 @@ its twelve sections — Building Block View — is non-optional; the rest exist
 to be used when they earn their place, not filled in as a checklist. This
 org goes slightly further than arc42's own minimum, because a document
 meant to answer "what should I read before touching this system" needs more
-than a description of its static structure. The following are **mandatory**
-in every repo's one architecture document:
+than a description of its static structure.
 
-| Section | Answers |
-|---|---|
-| Introduction & Goals | Why this system exists; its explicit quality goals |
-| Context & Scope | What's inside the boundary, what's outside, what it talks to |
-| Solution Strategy | The core technical approach, and why that one |
-| Building Block View | What exists — arc42's own one non-optional section |
-| Quality Requirements | Quality **scenarios** (stimulus → response), not adjectives like "fast" or "secure" |
-| Architecture Decisions | Significant decisions and their reasoning — inline or as ADRs, per the section above |
-| Risks & Technical Debt | What's known to be wrong, unfinished, or unverified — stated, not hidden |
+**Which sections are mandatory is decided in exactly one place:**
+[`docs/adr/0001-ssdlc-and-cpsa-strategy.md`](docs/adr/0001-ssdlc-and-cpsa-strategy.md),
+decision 2. This document used to carry its own copy of that list, and for a
+while the two disagreed — on Solution Strategy and Crosscutting Concepts in
+particular — while both were in flight at once. That is exactly the drift a
+single source of truth exists to prevent, so read the mandatory-section list
+there, not here: restating it in a second place is how it drifted the first
+time.
 
-Everything else in arc42's twelve — Constraints, Runtime View, Deployment
-View, Crosscutting Concepts, Glossary — is **optional**: add the section the
-day a reader would otherwise have to reconstruct that information from
-source, not before. `vsms/docs/architecture.md` is not organized under
-arc42's own section numbers, and doesn't need to be — every mandatory row
-above has a real, findable home in it regardless (its "R. Engineering
-rules" section carries Constraints and Crosscutting Concepts together, and
-"13. Risks and open questions" is Risks & Technical Debt under a different
-name). Match the *content* a section is supposed to carry, not the exact
-heading text.
+`vsms/docs/architecture.md` is not organized under arc42's own section
+numbers, and doesn't need to be — every section that ADR marks mandatory has
+a real, findable home in it regardless (its "R. Engineering rules" section
+carries Crosscutting Concepts, and "13. Risks and open questions" is Risks &
+Technical Debt under a different name). Match the *content* a section is
+supposed to carry, not the exact heading text.
 
 ## What runs, and where it comes from
 
