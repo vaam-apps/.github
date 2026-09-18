@@ -86,6 +86,53 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # release-please writes a CHANGELOG with one "### Bug Fixes" heading per
+      # release section. That is the correct changelog shape and is exactly what
+      # markdownlint's MD024/no-duplicate-heading forbids, so without this every
+      # release PR in every repo that uses release-please fails this gate — which
+      # is how it was found, on vaam-apps/vsms#406.
+      #
+      # `siblings_only` permits a repeated heading under a different parent (each
+      # release has its own "## x.y.z"), while still catching a genuine duplicate
+      # inside one section.
+      #
+      # This reproduces super-linter v8.7.0's own default config verbatim
+      # (`extends: markdownlint/style/prettier`, `default: true`, the MD060
+      # setting) and adds one rule, rather than replacing it with a minimal file
+      # — a bare `MD024` config would drop the prettier preset and turn on every
+      # formatting rule it disables, MD013 line length included.
+      #
+      # Skipped entirely when the repo supplies its own config, so a repo that
+      # wants different rules keeps them. Written untracked, so the fix-commit
+      # step below (tracked modifications only) never commits it.
+      - name: Default markdownlint config, when the repo has none
+        run: |
+          set -euo pipefail
+          for f in .github/linters/.markdown-lint.yml \
+                   .github/linters/.markdown-lint.yaml \
+                   .github/linters/.markdownlint.yml \
+                   .github/linters/.markdownlint.yaml \
+                   .github/linters/.markdownlint.json; do
+            if [ -f "$f" ]; then
+              echo "this repo supplies $f - leaving markdownlint configuration alone"
+              exit 0
+            fi
+          done
+          mkdir -p .github/linters
+          cat > .github/linters/.markdown-lint.yml <<'MDLINT'
+          # Written by vaam-apps/.github's lint.yml because this repo supplied no
+          # markdownlint config of its own. Mirrors super-linter v8.7.0's default
+          # and relaxes MD024 so release-please changelogs pass. Commit your own
+          # file at this path to take over.
+          extends: "markdownlint/style/prettier"
+          default: true
+          MD060:
+            style: aligned
+          MD024:
+            siblings_only: true
+          MDLINT
+          echo "wrote a default .github/linters/.markdown-lint.yml"
+
       - name: Super-linter
         uses: super-linter/super-linter/slim@4ce20838b8ab83717e78138c5b3a1407148e0918 # v8.7.0
         env:
