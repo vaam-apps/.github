@@ -77,6 +77,11 @@ jobs:
           probe "GET code-scanning/analyses"      "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/analyses"
           probe "POST code-scanning/sarifs (422 = ok)" -X POST -d '{}' \
                 "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/sarifs"
+          # codeql-action also reads the workflow run it is uploading for, which
+          # needs the Actions permission. The App does not hold it, and GitHub
+          # answers an unauthorised App with 404 rather than 403 — which is
+          # exactly the Not Found the upload reports.
+          probe "GET actions/runs/<this run>"     "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           echo "  --- app identity behind this token ---"
           curl -s -H "Authorization: Bearer $TOKEN" https://api.github.com/installation/repositories \
             | head -c 200 || true
