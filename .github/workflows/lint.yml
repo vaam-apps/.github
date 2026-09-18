@@ -1,0 +1,130 @@
+# Super-linter, deliberately scoped to what nothing else in this org lints.
+#
+# It does NOT lint Rust or JS/TS. Those already have clippy/rustfmt and biome,
+# configured per repo, faster, and authoritative. Two auto-fixers on one file
+# do not converge — they fight, and the commit log records the argument. So
+# super-linter owns only the gaps: Markdown, YAML, JSON, Dockerfile, shell,
+# and workflow security.
+#
+# VALIDATE_GITHUB_ACTIONS_ZIZMOR is the one people skip and shouldn't: it is
+# SAST for workflows themselves — template-injection through `${{ }}` in a
+# `run:` body, over-broad permissions, unpinned actions. Everything this org
+# has been fixing by hand.
+name: Lint (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      fix:
+        description: "Apply fixes and push them back to the PR branch."
+        type: boolean
+        required: false
+        default: true
+      validate-all:
+        description: "Lint the whole tree rather than only files the PR changed."
+        type: boolean
+        required: false
+        default: false
+      filter-regex-exclude:
+        description: "Regex of paths to skip entirely (generated code, vendored files)."
+        type: string
+        required: false
+        default: ""
+    secrets:
+      app-client-id:
+        required: true
+      app-private-key:
+        required: true
+
+permissions: {}
+
+jobs:
+  lint:
+    name: Super-linter
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      # A fork PR gets a read-only token and no secrets, so there is no token
+      # that could push to the fork's branch even in principle. Rather than
+      # fail, such a PR is linted in report-only mode and says so. Silently
+      # "succeeding" while fixing nothing is the failure mode to avoid.
+      - name: Decide whether fixes can be pushed
+        id: mode
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          WANT_FIX: ${{ inputs.fix }}
+        run: |
+          if [ "$WANT_FIX" != "true" ]; then
+            echo "fix=false" >>"$GITHUB_OUTPUT"; echo "reason=disabled by caller" >>"$GITHUB_OUTPUT"
+          elif [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" != "${{ github.repository }}" ]; then
+            echo "fix=false" >>"$GITHUB_OUTPUT"; echo "reason=fork PR — no writable token exists for $HEAD_REPO" >>"$GITHUB_OUTPUT"
+          else
+            echo "fix=true" >>"$GITHUB_OUTPUT"; echo "reason=same-repo branch" >>"$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        if: steps.mode.outputs.fix == 'true'
+        with:
+          app-id: ${{ secrets.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+
+      # Check out the PR's real head branch, not the merge commit a
+      # pull_request checkout gives you by default — you cannot push a fix to
+      # a detached merge ref.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          token: ${{ steps.app.outputs.token || github.token }}
+          persist-credentials: ${{ steps.mode.outputs.fix == 'true' }}
+
+      - name: Super-linter
+        uses: super-linter/super-linter/slim@4ce20838b8ab83717e78138c5b3a1407148e0918 # v8.7.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          VALIDATE_ALL_CODEBASE: ${{ inputs.validate-all }}
+          FILTER_REGEX_EXCLUDE: ${{ inputs.filter-regex-exclude }}
+          SAVE_SUPER_LINTER_SUMMARY: true
+
+          # --- the gaps, and only the gaps ---
+          VALIDATE_MARKDOWN: true
+          VALIDATE_YAML: true
+          VALIDATE_JSON: true
+          VALIDATE_DOCKERFILE_HADOLINT: true
+          VALIDATE_BASH: true
+          VALIDATE_GITHUB_ACTIONS: true
+          VALIDATE_GITHUB_ACTIONS_ZIZMOR: true
+
+          # --- fixes, where the tool can apply one safely ---
+          FIX_MARKDOWN: ${{ steps.mode.outputs.fix }}
+          FIX_JSON: ${{ steps.mode.outputs.fix }}
+          FIX_YAML_PRETTIER: ${{ steps.mode.outputs.fix }}
+          FIX_SHELL_SHFMT: ${{ steps.mode.outputs.fix }}
+
+      - name: Commit fixes
+        if: steps.mode.outputs.fix == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "nothing to fix"; exit 0
+          fi
+          git config user.name  "vaam-apps[bot]"
+          git config user.email "vaam-apps[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "style: apply super-linter fixes
+
+          Applied automatically by the org lint workflow. Scope is Markdown,
+          JSON, YAML and shell formatting only — Rust and JS/TS formatting
+          belong to this repo's own clippy/biome configuration."
+          git push
+          echo "::notice title=Lint::Pushed formatting fixes. This re-triggers CI once; the next run finds nothing to fix and pushes nothing."
+
+      - name: Report-only, and why
+        if: steps.mode.outputs.fix != 'true'
+        run: echo "::notice title=Lint::Report-only (${{ steps.mode.outputs.reason }}). Findings above were not auto-fixed."

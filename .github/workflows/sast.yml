@@ -1,0 +1,114 @@
+# Static analysis for code and for documentation.
+#
+# Two halves, because "SAST for docs" is a different question from SAST for
+# code and no single tool answers both:
+#
+#   code  — CodeQL, one analysis per language.
+#   docs  — link integrity. A documentation set that confidently points at a
+#           dead or hijacked URL is a real defect, and the only one a reader
+#           cannot detect by reading. Secret-in-docs is covered by trivy.yml's
+#           secret scanner, which walks every file including Markdown, so it is
+#           deliberately not duplicated here.
+#
+# build-mode is `none` for every language this org uses. CodeQL analyses Rust,
+# JS/TS and Actions from source, so nothing is compiled here — which matters:
+# a build-mode of autobuild on vsms would spend five minutes rebuilding a
+# workspace that ci.yml has already built.
+name: SAST (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      codeql-languages:
+        description: 'JSON array, e.g. ["rust","javascript-typescript","actions"]. Empty disables CodeQL.'
+        type: string
+        required: false
+        default: "[]"
+      docs-globs:
+        description: "Newline-separated globs to link-check. Empty disables the docs job."
+        type: string
+        required: false
+        default: ""
+      fail-on-broken-links:
+        description: "Fail the docs job on a broken link, rather than only annotating."
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      app-client-id:
+        required: true
+      app-private-key:
+        required: true
+
+permissions: {}
+
+jobs:
+  codeql:
+    if: inputs.codeql-languages != '[]'
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(inputs.codeql-languages) }}
+    steps:
+      # Minted inline, not via a local composite action: `uses: ./…` inside a
+      # REUSABLE workflow resolves against the caller's checkout, not this
+      # repository, so a shared composite here would break every consumer.
+      # Six duplicated lines beat a mechanism that resolves somewhere else.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          app-id: ${{ secrets.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: github/codeql-action/init@977e6ceaea7361825998245d787fa3b4d6b9e5df # codeql-bundle-v2.27.0
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          token: ${{ steps.app.outputs.token }}
+
+      - uses: github/codeql-action/analyze@977e6ceaea7361825998245d787fa3b4d6b9e5df # codeql-bundle-v2.27.0
+        with:
+          category: /language:${{ matrix.language }}
+          token: ${{ steps.app.outputs.token }}
+
+      - name: Explain an upload failure
+        if: failure()
+        run: |
+          echo "::error title=CodeQL::If this failed on upload with 'Resource not accessible by integration',"
+          echo "the vaam-apps App is missing 'security_events: write'. Grant it in the App settings;"
+          echo "no app in this org had it when these workflows were written."
+
+  docs:
+    if: inputs.docs-globs != ''
+    name: Docs — link integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: >-
+            --no-progress --include-fragments --max-retries 2
+            --exclude-path node_modules --exclude-path target
+            ${{ inputs.docs-globs }}
+          fail: ${{ inputs.fail-on-broken-links }}
+          # lychee's own token use is read-only rate-limit relief on github.com
+          # links; GITHUB_TOKEN is correct and sufficient here, and using the
+          # App would grant it more than a link checker should ever hold.
+          token: ${{ github.token }}

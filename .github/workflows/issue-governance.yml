@@ -1,0 +1,188 @@
+# Validates an issue's structure against the adorsys-gis ai-governance work-item
+# templates (01-epic, 02-user-story, 03-dev-ticket).
+#
+# It checks the sections the framework itself calls blocking, not all nineteen
+# headings. That restraint is the point: a validator that rejects every real
+# issue gets switched off within a week, and then nothing is checked at all.
+# The blocking set, in the framework's own words:
+#
+#   Source of Truth        "if the source of truth is missing, the story must
+#                           not enter sprint planning"
+#   Intent                 "not ready if the intention is only copied from an
+#                           AI-generated summary"
+#   AI Usage Declaration   the framework's central human-accountability control
+#   Definition of Ready    gate for entering a sprint
+#   Definition of Done     gate for leaving one
+#
+# Source of Truth is checked for CONTENT, not just a heading — an empty heading
+# is the obvious way to satisfy a naive check while satisfying nothing else.
+name: Issue governance (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      enforce:
+        description: "Label and comment on a non-conforming issue. False = annotate the run only."
+        type: boolean
+        required: false
+        default: true
+      label:
+        type: string
+        required: false
+        default: "governance:incomplete"
+      exempt-labels:
+        description: "Comma-separated labels that skip validation entirely."
+        type: string
+        required: false
+        default: "question,discussion,meta,dependencies"
+    secrets:
+      app-client-id:
+        required: true
+      app-private-key:
+        required: true
+
+permissions: {}
+
+jobs:
+  validate:
+    name: Structure
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          app-id: ${{ secrets.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+
+      - name: Validate
+        id: check
+        env:
+          # The issue body reaches the script through the environment, never
+          # through `${{ }}` inside a run: block. `${{ }}` is textual
+          # substitution, and an issue body is attacker-controlled text.
+          BODY: ${{ github.event.issue.body }}
+          TITLE: ${{ github.event.issue.title }}
+          LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
+          EXEMPT: ${{ inputs.exempt-labels }}
+        run: |
+          python3 - <<'PY' >>"$GITHUB_OUTPUT"
+          import os, re, json
+
+          body   = os.environ.get("BODY") or ""
+          title  = os.environ.get("TITLE") or ""
+          labels = {l.strip().lower() for l in (os.environ.get("LABELS") or "").split(",") if l.strip()}
+          exempt = {l.strip().lower() for l in (os.environ.get("EXEMPT") or "").split(",") if l.strip()}
+
+          if labels & exempt:
+              print("status=exempt"); print(f"reason=carries an exempt label ({', '.join(sorted(labels & exempt))})")
+              raise SystemExit(0)
+
+          # Which template applies. Label first, then the title prefix the
+          # templates themselves use ("Epic:" / "Ticket:").
+          if "epic" in labels or re.match(r"^\s*epic\s*:", title, re.I):
+              kind, intent = "epic", ["strategic intent", "intent"]
+          elif labels & {"story", "user story", "user-story"}:
+              kind, intent = "user story", ["real intent", "intent"]
+          else:
+              kind, intent = "dev ticket", ["intent"]
+
+          def heading_present(names):
+              """A heading matches on its text, ignoring the template's numbering
+              ('### 4. Source of Truth') and any bold-only styling."""
+              for n in names:
+                  pat = r"^\s{0,3}(#{1,6}|\*\*)\s*(\d+\.\s*)?" + re.escape(n) + r"\b"
+                  if re.search(pat, body, re.I | re.M):
+                      return True
+              return False
+
+          def section_body(names):
+              for n in names:
+                  m = re.search(r"^\s{0,3}(#{1,6}|\*\*)\s*(\d+\.\s*)?" + re.escape(n) + r"\b.*$",
+                                body, re.I | re.M)
+                  if not m:
+                      continue
+                  rest = body[m.end():]
+                  nxt = re.search(r"^\s{0,3}#{1,6}\s", rest, re.M)
+                  return (rest[:nxt.start()] if nxt else rest).strip()
+              return ""
+
+          required = {
+              "Source of Truth":      ["source of truth"],
+              "Intent":               intent,
+              "AI Usage Declaration": ["ai usage declaration"],
+              "Definition of Ready":  ["definition of ready"],
+              "Definition of Done":   ["definition of done"],
+          }
+          if kind != "epic":
+              required["Acceptance Criteria"] = ["acceptance criteria"]
+
+          missing = [label for label, names in required.items() if not heading_present(names)]
+
+          # Present-but-hollow. Checked only where the framework says an empty
+          # section is itself disqualifying.
+          hollow = []
+          sot = section_body(["source of truth"])
+          if "Source of Truth" not in missing:
+              stripped = re.sub(r"[-*\s_]|\(none\)|n/?a|tbd|todo", "", sot, flags=re.I)
+              if not stripped:
+                  hollow.append("**Source of Truth** has no content. The framework is explicit: "
+                                "without it the item must not enter sprint planning.")
+              elif not re.search(r"https?://|#\d+|[A-Z]{2,}-\d+", sot):
+                  hollow.append("**Source of Truth** names no link, issue reference or ticket id — "
+                                "so nothing can be re-verified against it later.")
+
+          ai = section_body(["ai usage declaration"])
+          if "AI Usage Declaration" not in missing and not re.search(r"\[[ xX]\]", ai):
+              hollow.append("**AI Usage Declaration** has no checkboxes filled in either direction. "
+                            "It records human accountability; leaving it blank records nothing.")
+
+          problems = [f"Missing section: **{m}**" for m in missing] + hollow
+          print(f"kind={kind}")
+          print(f"status={'fail' if problems else 'pass'}")
+          print("problems<<EOF"); [print(f"- {p}") for p in problems]; print("EOF")
+          PY
+
+      - name: Report
+        if: always() && steps.check.outputs.status != 'exempt'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          STATUS: ${{ steps.check.outputs.status }}
+          KIND: ${{ steps.check.outputs.kind }}
+          PROBLEMS: ${{ steps.check.outputs.problems }}
+          ENFORCE: ${{ inputs.enforce }}
+          LABEL: ${{ inputs.label }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          MARKER="<!-- vaam-apps:issue-governance -->"
+          if [ "$STATUS" = "pass" ]; then
+            echo "::notice title=Issue governance::Conforms to the $KIND template."
+            [ "$ENFORCE" = "true" ] && gh issue edit "$ISSUE" --repo "$REPO" --remove-label "$LABEL" 2>/dev/null || true
+            exit 0
+          fi
+
+          echo "::warning title=Issue governance::Does not conform to the $KIND template."
+          printf '%s\n' "$PROBLEMS"
+          [ "$ENFORCE" != "true" ] && exit 0
+
+          BODY=$(printf '%s\n\n**This %s does not yet meet the [ai-governance](https://adorsys-gis.github.io/ai-governance/) work-item template.**\n\n%s\n\nTemplate: [epic](https://adorsys-gis.github.io/ai-governance/01-epic-template) · [user story](https://adorsys-gis.github.io/ai-governance/02-user-story-template) · [dev ticket](https://adorsys-gis.github.io/ai-governance/03-dev-ticket-template)\n\nEdit the issue and this check re-runs; the label clears itself.\n' "$MARKER" "$KIND" "$PROBLEMS")
+
+          # One comment, kept updated — not a new one on every edit.
+          EXISTING=$(gh api "repos/$REPO/issues/$ISSUE/comments" --jq \
+            "[.[] | select(.body | contains(\"$MARKER\"))] | .[0].id // empty")
+          if [ -n "$EXISTING" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$EXISTING" -f body="$BODY" >/dev/null
+          else
+            gh issue comment "$ISSUE" --repo "$REPO" --body "$BODY"
+          fi
+          gh issue edit "$ISSUE" --repo "$REPO" --add-label "$LABEL"
+
+      - name: Explain a permission failure
+        if: failure()
+        run: |
+          echo "::error title=Issue governance::If this failed with 'Resource not accessible by integration',"
+          echo "the vaam-apps App holds only 'issue_fields: read' and 'issue_types: read'."
+          echo "Commenting and labelling need 'issues: write'."

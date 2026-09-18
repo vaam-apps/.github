@@ -1,0 +1,91 @@
+# Trivy filesystem scan: dependency vulnerabilities, leaked secrets, and IaC
+# misconfiguration.
+#
+# On the Rust repos the vulnerability half overlaps `cargo deny`, which already
+# runs there and is stricter about licences and bans. The parts that are NOT
+# already covered, and the reason this exists:
+#
+#   misconfig — Dockerfiles, compose files, Helm charts. Nothing else looks at
+#               these, and every repo here ships containers.
+#   secret    — walks every file, documentation included, which is the other
+#               half of "SAST for docs".
+name: Trivy (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      scanners:
+        type: string
+        required: false
+        default: "vuln,secret,misconfig"
+      severity:
+        description: "Severities that fail the job. Everything found is still uploaded."
+        type: string
+        required: false
+        default: "CRITICAL,HIGH"
+      skip-dirs:
+        type: string
+        required: false
+        default: "**/node_modules,**/target,**/.git"
+    secrets:
+      app-client-id:
+        required: true
+      app-private-key:
+        required: true
+
+permissions: {}
+
+jobs:
+  scan:
+    name: Trivy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          app-id: ${{ secrets.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Two runs on purpose. The first must not fail, or a CRITICAL finding
+      # would abort the job before its own SARIF reached code scanning — you
+      # would be told something is wrong and not what.
+      - name: Scan (report)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scanners: ${{ inputs.scanners }}
+          skip-dirs: ${{ inputs.skip-dirs }}
+          format: sarif
+          output: trivy.sarif
+          exit-code: "0"
+
+      - uses: github/codeql-action/upload-sarif@977e6ceaea7361825998245d787fa3b4d6b9e5df # codeql-bundle-v2.27.0
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-fs
+          token: ${{ steps.app.outputs.token }}
+
+      - name: Gate
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scanners: ${{ inputs.scanners }}
+          skip-dirs: ${{ inputs.skip-dirs }}
+          severity: ${{ inputs.severity }}
+          ignore-unfixed: true
+          format: table
+          exit-code: "1"
+
+      - name: Explain an upload failure
+        if: failure()
+        run: |
+          echo "::error title=Trivy::If this failed uploading SARIF with 'Resource not accessible by integration',"
+          echo "the vaam-apps App is missing 'security_events: write'."
