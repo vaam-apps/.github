@@ -1,0 +1,443 @@
+# Makes the org's other four reusable workflows actually gate, instead of only
+# annotating a PR that can still be merged red.
+#
+# The problem, stated in numbers rather than adjectives: as of the PR that adds
+# this workflow, zero repos in vaam-apps have a single required status check,
+# and vpay-skills / vsms-skills have no branch protection at all. sast.yml,
+# lint.yml, trivy.yml and pr-governance.yml can all fail loudly — nothing stops
+# the PR that failed them from being merged anyway. This workflow closes that
+# gap by managing one repository ruleset per repo, applied to whatever that
+# repo's default branch is.
+#
+# ---------------------------------------------------------------------------
+# Ruleset vs. classic branch protection — investigated, not assumed
+# ---------------------------------------------------------------------------
+#
+# Both APIs can require status checks, PR reviews and block force-push/deletion
+# on a branch. They differ in ways that matter here:
+#
+#   - Classic protection (`PUT /branches/{branch}/protection`) needs the exact
+#     branch name in the URL, so every caller has to look up
+#     `repository.default_branch` first (and vpay's is `master`, not `main` —
+#     never hardcode it). Rulesets accept the literal ref pattern
+#     `~DEFAULT_BRANCH` in `conditions.ref_name.include`, confirmed directly
+#     against GitHub's OpenAPI description
+#     (repository-ruleset-conditions.ref_name.include: "Also accepts
+#     ~DEFAULT_BRANCH to include the default branch"). One ruleset body works
+#     for every repo regardless of what its default branch is named, and it
+#     keeps working if the default branch is ever renamed — no rerun needed.
+#   - Classic protection is unavailable on a private repo on GitHub Free
+#     (confirmed against docs.github.com/en/rest/branches/branch-protection).
+#     Rulesets need GitHub Team or Enterprise. Checked which applies here
+#     rather than guessing: `gh api orgs/vaam-apps --jq .plan.name` reports
+#     `enterprise`, so neither constraint actually bites in this org today —
+#     recorded so the next person doesn't have to re-derive it, and so it's
+#     visible if the plan ever changes.
+#   - Rulesets are named, listed, and independently addressable
+#     (GET/POST/PUT/DELETE /repos/{owner}/{repo}/rulesets[/{id}]), so this
+#     workflow can own exactly one ruleset by name and leave anything else
+#     configured on the repo — a manually created ruleset, an inherited
+#     org-level one — untouched. Classic protection is a single global object
+#     per branch; a second script managing it any other way would silently
+#     clobber the whole thing.
+#
+# Chosen: **repository rulesets.** Classic branch protection is not deprecated
+# and this reasoning would need revisiting if this org ever drops to a Free
+# plan, but on Team/Enterprise rulesets are the more precise and more durable
+# mechanism, and are GitHub's own stated direction for this feature.
+#
+# One ruleset per repo, identified by `inputs.ruleset-name` (default
+# `sync-repo-settings`), targeting `~DEFAULT_BRANCH` only. Nothing else on the
+# repo is read or touched.
+#
+# ---------------------------------------------------------------------------
+# The dangerous part: required check *contexts* are match-by-string
+# ---------------------------------------------------------------------------
+#
+# A required context that never reports on a given repo blocks every PR there
+# forever — there is nothing to merge past. This was checked against real
+# check-run data before choosing any default, not inferred from the workflow
+# YAML alone:
+#
+#   - CodeQL's own matrix produces LANGUAGE-DEPENDENT context names
+#     ("SAST / CodeQL (rust)", "SAST / CodeQL (javascript-typescript)", ...).
+#     `ui` and `flutter-sign-keypair` have no `sast` job in their `quality.yml`
+#     at all (both rely on GitHub's own code-scanning default setup instead —
+#     see each repo's own comment on why). Confirmed live: neither repo's
+#     check-run list has ever contained anything prefixed "SAST /".
+#   - When the CALLER job that wraps a reusable-workflow call is skipped by
+#     its own `if:` (e.g. `sast`'s `if: needs.changes.outputs.code == 'true'
+#     || needs.changes.outputs.docs == 'true'`), GitHub reports exactly ONE
+#     check run, named after the caller job itself with no "/" ("SAST"), with
+#     conclusion `skipped`. Confirmed live on vsms PR #407 (a
+#     workflow-files-only change: code=false, docs=false, iac=true): the
+#     check-run list shows `SAST | skipped` — no "SAST / CodeQL (...)" entries
+#     at all, because the matrix never ran to produce them. So the same PR
+#     that a naive default would try to require "SAST / CodeQL (rust)" on is
+#     a PR where that exact string can never appear. This is the mechanism,
+#     not a one-off: `trivy` is gated the identical way
+#     (`if: needs.changes.outputs.code == 'true' ||
+#     needs.changes.outputs.iac == 'true'`), so "trivy / Trivy" has the same
+#     failure mode on a docs-only PR.
+#   - `lint`'s caller job, in every one of the four repos that have adopted
+#     `quality.yml` today (vsms, vpay, ui, flutter-sign-keypair), is gated on
+#     `needs.changes.outputs.any == 'true'`, and `any`'s own filter is the
+#     single glob `'**'` — matching every possible changed file. In practice
+#     this job is unconditional: any real PR changes at least one file.
+#     Confirmed live in all four repos (vsms commit 4860c53, vpay commit
+#     e2aff8a, ui PR #17, flutter-sign-keypair PR #1): "lint / Super-linter"
+#     is present in every one of them, success or failure, never absent.
+#   - Two adopted repos (vsms, vpay) call `sast.yml`; two (ui,
+#     flutter-sign-keypair) don't call it at all. Five repos in the org
+#     (vaam-apps, fyi, image-resizer, vpay-skills, vsms-skills) call NONE of
+#     the four reusable workflows as of this PR — confirmed by listing every
+#     workflow file in each and grepping for a `uses:
+#     vaam-apps/.github/.github/workflows/...` reference. `vaam-apps` is
+#     additionally private with Code Security / Dependabot disabled (its
+#     code-scanning and vulnerability-alerts endpoints both 403/404), so even
+#     a GHAS-dependent context would never populate there regardless of
+#     adoption.
+#
+# So the intersection of contexts that provably report on every repo in this
+# org, TODAY, is empty — five of nine product repos have no caller at all.
+# **`required-checks` therefore defaults to nothing.** The one context that
+# is safe to require, verified as above, is `lint / Super-linter`, and only
+# for a repo that has actually merged its `quality.yml` caller with the
+# `any: ['**']` gating pattern intact — a caller opts into that explicitly, on
+# a per-repo basis, never as an org-wide default baked into this file.
+#
+# ---------------------------------------------------------------------------
+# Two more things worth recording rather than rediscovering
+# ---------------------------------------------------------------------------
+#
+# The vaam-apps GitHub App installation does not currently hold
+# `administration` on any repo (`gh api orgs/vaam-apps/installations`).
+# Rulesets and branch protection both live entirely under that one
+# permission — confirmed directly against
+# docs.github.com/en/rest/authentication/permissions-required-for-github-apps
+# (GET/POST/PUT/DELETE on `.../branches/{branch}/protection/*` and
+# `.../rulesets*` are all listed under "Administration"). Until the App is
+# granted at least `administration: read`, even dry-run mode's own read of
+# the current ruleset state will fail with a 403 — the "Explain a permission
+# failure" step below exists for exactly that, matching this repo's own
+# convention in pr-governance.yml/issue-governance.yml.
+#
+# `dry-run` never calls GitHub's own `evaluate` ruleset-enforcement mode.
+# `evaluate` is real and would make a fine dry run — it creates a genuine,
+# visible ruleset that reports violations without blocking — but it still
+# creates persistent state on the repo, which is a stronger claim than "will
+# report what it would change without changing it." Dry-run here does exactly
+# one thing: read, diff, print. No POST/PUT/DELETE call is ever made unless
+# `dry-run` is explicitly `false`.
+name: Sync repo settings (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      dry-run:
+        description: >-
+          Plan only. Reads the repo's current ruleset (if any), computes what
+          this run would create or change, and prints it — no POST, PUT or
+          DELETE call is made. This is a destructive, admin-scoped operation;
+          a caller has to set this to `false` explicitly to apply anything.
+        type: boolean
+        required: false
+        default: true
+      ruleset-name:
+        description: "Name of the ruleset this workflow owns. Anything else configured on the repo is left untouched."
+        type: string
+        required: false
+        default: "sync-repo-settings"
+      required-checks:
+        description: >-
+          Newline-separated list of exact check-run context strings (as
+          GitHub reports them — e.g. "lint / Super-linter"), required before
+          merging. Empty by default: see this workflow's own header comment
+          for why no non-empty default is safe org-wide. A repo that has
+          confirmed a context reports reliably on every real PR passes it
+          explicitly.
+        type: string
+        required: false
+        default: ""
+      strict-status-checks:
+        description: "Require a PR branch to be up to date with the default branch before merging. Only meaningful when required-checks is non-empty."
+        type: boolean
+        required: false
+        default: false
+      require-pr:
+        description: "Require a pull request before merging to the default branch."
+        type: boolean
+        required: false
+        default: true
+      required-approving-review-count:
+        type: number
+        required: false
+        default: 1
+      dismiss-stale-reviews:
+        description: "Dismiss approvals when new commits are pushed."
+        type: boolean
+        required: false
+        default: true
+      require-code-owner-review:
+        type: boolean
+        required: false
+        default: false
+      require-last-push-approval:
+        description: "The most recent push must be approved by someone other than whoever pushed it."
+        type: boolean
+        required: false
+        default: false
+      require-conversation-resolution:
+        type: boolean
+        required: false
+        default: true
+      enforce-admins:
+        description: "Apply every rule to organization admins too, with no bypass. False adds an OrganizationAdmin bypass actor."
+        type: boolean
+        required: false
+        default: true
+      allow-force-pushes:
+        type: boolean
+        required: false
+        default: false
+      allow-deletions:
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      app-client-id:
+        required: true
+      app-private-key:
+        required: true
+
+permissions: {}
+
+jobs:
+  sync:
+    # No GITHUB_TOKEN use anywhere in this job — every API call authenticates
+    # as the App, for the same reason every other workflow in this repo does:
+    # a push or an admin-scoped write made with GITHUB_TOKEN raises no
+    # workflow events and is invisible to anyone relying on that event firing.
+    name: Repository ruleset
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          client-id: ${{ secrets.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+
+      - name: Plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPO: ${{ github.repository }}
+          RULESET_NAME: ${{ inputs.ruleset-name }}
+          REQUIRED_CHECKS_RAW: ${{ inputs.required-checks }}
+          STRICT_STATUS_CHECKS: ${{ inputs.strict-status-checks }}
+          REQUIRE_PR: ${{ inputs.require-pr }}
+          REVIEW_COUNT: ${{ inputs.required-approving-review-count }}
+          DISMISS_STALE_REVIEWS: ${{ inputs.dismiss-stale-reviews }}
+          REQUIRE_CODE_OWNER_REVIEW: ${{ inputs.require-code-owner-review }}
+          REQUIRE_LAST_PUSH_APPROVAL: ${{ inputs.require-last-push-approval }}
+          REQUIRE_CONVERSATION_RESOLUTION: ${{ inputs.require-conversation-resolution }}
+          ENFORCE_ADMINS: ${{ inputs.enforce-admins }}
+          ALLOW_FORCE_PUSHES: ${{ inputs.allow-force-pushes }}
+          ALLOW_DELETIONS: ${{ inputs.allow-deletions }}
+        run: |
+          set -euo pipefail
+
+          default_branch=$(gh api "repos/${REPO}" --jq '.default_branch')
+          echo "::notice title=Sync repo settings::${REPO} default branch is '${default_branch}' (the ruleset itself targets ~DEFAULT_BRANCH and does not depend on this value)."
+
+          # required-checks: newline-separated -> a JSON array of {context}.
+          # Read via a file, never interpolated into the script text, even
+          # though a workflow_call input is set by a trusted caller and not
+          # attacker text the way a PR body is — same discipline as the rest
+          # of this repo's workflows, applied uniformly rather than only
+          # where something is provably hostile today.
+          checks_json=$(printf '%s' "$REQUIRED_CHECKS_RAW" | jq -Rs '
+            split("\n") | map(select(length > 0)) | map({context: .})
+          ')
+
+          # --- desired ruleset, built once, used for both the diff and the apply ---
+          desired=$(jq -n \
+            --arg name "$RULESET_NAME" \
+            --argjson checks "$checks_json" \
+            --argjson strict "$STRICT_STATUS_CHECKS" \
+            --argjson require_pr "$REQUIRE_PR" \
+            --argjson review_count "$REVIEW_COUNT" \
+            --argjson dismiss_stale "$DISMISS_STALE_REVIEWS" \
+            --argjson code_owner "$REQUIRE_CODE_OWNER_REVIEW" \
+            --argjson last_push "$REQUIRE_LAST_PUSH_APPROVAL" \
+            --argjson conversation "$REQUIRE_CONVERSATION_RESOLUTION" \
+            --argjson enforce_admins "$ENFORCE_ADMINS" \
+            --argjson allow_force_pushes "$ALLOW_FORCE_PUSHES" \
+            --argjson allow_deletions "$ALLOW_DELETIONS" \
+            '
+            def pr_rule:
+              {
+                type: "pull_request",
+                parameters: {
+                  dismiss_stale_reviews_on_push: $dismiss_stale,
+                  require_code_owner_review: $code_owner,
+                  require_last_push_approval: $last_push,
+                  required_approving_review_count: $review_count,
+                  required_review_thread_resolution: $conversation,
+                  # Set explicitly so a server-side default cannot appear on
+                  # a re-fetch and manufacture a permanent, spurious diff.
+                  allowed_merge_methods: ["merge", "squash", "rebase"]
+                }
+              };
+            def status_checks_rule:
+              {
+                type: "required_status_checks",
+                parameters: {
+                  required_status_checks: $checks,
+                  strict_required_status_checks_policy: $strict,
+                  do_not_enforce_on_create: false
+                }
+              };
+            {
+              name: $name,
+              target: "branch",
+              enforcement: "active",
+              conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+              bypass_actors:
+                (if $enforce_admins then []
+                 else [{ actor_type: "OrganizationAdmin", actor_id: null, bypass_mode: "always" }]
+                 end),
+              rules:
+                ( (if $require_pr then [pr_rule] else [] end)
+                + (if ($checks | length) > 0 then [status_checks_rule] else [] end)
+                + (if $allow_deletions then [] else [{type: "deletion"}] end)
+                + (if $allow_force_pushes then [] else [{type: "non_fast_forward"}] end)
+                )
+            }
+            ')
+
+          # --- current state: find OUR ruleset by name among repo-owned
+          # rulesets only (includes_parents=false, and source_type ==
+          # "Repository") so an inherited org-level ruleset of the same name
+          # is never mistaken for one this workflow owns. ---
+          existing_id=$(gh api "repos/${REPO}/rulesets?includes_parents=false" | jq -r \
+            --arg name "$RULESET_NAME" \
+            '[.[] | select(.name == $name and .source_type == "Repository")] | .[0].id // empty')
+
+          if [ -n "$existing_id" ]; then
+            current=$(gh api "repos/${REPO}/rulesets/${existing_id}")
+          else
+            current='null'
+          fi
+
+          # Reduce both sides to only the fields this workflow manages, so a
+          # field it never sets (a future GitHub default, a hand-configured
+          # extra) never shows up as a diff neither side asked to close.
+          canon='
+            def managed:
+              if . == null then null else
+              {
+                name,
+                target: (.target // "branch"),
+                enforcement,
+                ref_include: (.conditions.ref_name.include // [] | sort),
+                ref_exclude: (.conditions.ref_name.exclude // [] | sort),
+                bypass:
+                  ((.bypass_actors // [])
+                    | map({actor_type, actor_id, bypass_mode: (.bypass_mode // "always")})
+                    | sort_by(.actor_type, (.actor_id // -1), .bypass_mode)),
+                rule_types: ((.rules // []) | map(.type) | sort),
+                pull_request:
+                  ((.rules // []) | map(select(.type == "pull_request")) | .[0].parameters
+                    | if . == null then null else {
+                        dismiss_stale_reviews_on_push,
+                        require_code_owner_review,
+                        require_last_push_approval,
+                        required_approving_review_count,
+                        required_review_thread_resolution,
+                        allowed_merge_methods: (.allowed_merge_methods // [] | sort)
+                      } end),
+                required_status_checks:
+                  ((.rules // []) | map(select(.type == "required_status_checks")) | .[0].parameters
+                    | if . == null then null else {
+                        strict_required_status_checks_policy,
+                        contexts: ((.required_status_checks // []) | map(.context) | sort)
+                      } end)
+              } end;
+            managed'
+
+          desired_canon=$(echo "$desired" | jq -cS "$canon")
+          current_canon=$(echo "$current" | jq -cS "$canon")
+
+          echo "$desired" > /tmp/desired.json
+          echo "$current" > /tmp/current.json
+
+          {
+            echo "## Sync repo settings — ${REPO}"
+            echo
+            echo "Ruleset \`${RULESET_NAME}\`, targeting \`~DEFAULT_BRANCH\` (currently \`${default_branch}\`)."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$existing_id" = "" ]; then
+            action="create"
+            echo "::notice title=Sync repo settings::No existing '${RULESET_NAME}' ruleset on ${REPO}. Would CREATE:"
+          elif [ "$desired_canon" = "$current_canon" ]; then
+            action="noop"
+            echo "::notice title=Sync repo settings::${REPO}'s '${RULESET_NAME}' ruleset already matches. No changes."
+          else
+            action="update"
+            echo "::notice title=Sync repo settings::${REPO}'s '${RULESET_NAME}' ruleset (id ${existing_id}) differs. Would UPDATE:"
+          fi
+
+          {
+            echo "**Action:** \`${action}\`"
+            echo
+            if [ "$action" != "noop" ]; then
+              echo '```diff'
+              diff -u \
+                <(echo "$current_canon" | jq .) \
+                <(echo "$desired_canon" | jq .) \
+                | tail -n +3 || true
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "action=${action}" >> "$GITHUB_OUTPUT"
+          echo "existing_id=${existing_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Apply
+        if: inputs.dry-run != true && steps.plan.outputs.action != 'noop'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPO: ${{ github.repository }}
+          ACTION: ${{ steps.plan.outputs.action }}
+          EXISTING_ID: ${{ steps.plan.outputs.existing_id }}
+        run: |
+          set -euo pipefail
+          if [ "$ACTION" = "create" ]; then
+            gh api "repos/${REPO}/rulesets" \
+              --method POST \
+              --input /tmp/desired.json \
+              --jq '"Created ruleset " + .name + " (id " + (.id | tostring) + ")."'
+          else
+            gh api "repos/${REPO}/rulesets/${EXISTING_ID}" \
+              --method PUT \
+              --input /tmp/desired.json \
+              --jq '"Updated ruleset " + .name + " (id " + (.id | tostring) + ")."'
+          fi
+
+      - name: Dry run — nothing was changed
+        if: inputs.dry-run == true
+        run: echo "::notice title=Sync repo settings::dry-run is true (the default). Nothing was created, updated or deleted — see the job summary for the plan."
+
+      - name: Explain a permission failure
+        if: failure()
+        run: |
+          echo "::error title=Sync repo settings::If this failed with 'Resource not accessible by integration' or a 403 on"
+          echo "'repos/.../rulesets', the vaam-apps App does not hold 'administration' on this repository."
+          echo "Reading the current ruleset needs administration:read; creating or updating one needs administration:write."
+          echo "At the time this workflow was written the App held no 'administration' permission at all — see this"
+          echo "repository's own README for the current grant table."
