@@ -69,7 +69,7 @@ jobs:
         id: app
         if: steps.mode.outputs.fix == 'true'
         with:
-          app-id: ${{ secrets.app-client-id }}
+          client-id: ${{ secrets.app-client-id }}
           private-key: ${{ secrets.app-private-key }}
 
       # Check out the DEFAULT ref — for a pull_request that is GitHub's
@@ -101,6 +101,10 @@ jobs:
           VALIDATE_JSON: true
           VALIDATE_DOCKERFILE_HADOLINT: true
           VALIDATE_BASH: true
+          # shfmt is a separate linter from shellcheck, and super-linter refuses
+          # to start if FIX_SHELL_SHFMT is set while its own validator is off:
+          # "Cannot set FIX_SHELL_SHFMT to true when VALIDATE_SHELL_SHFMT is false".
+          VALIDATE_SHELL_SHFMT: true
           VALIDATE_GITHUB_ACTIONS: true
           VALIDATE_GITHUB_ACTIONS_ZIZMOR: true
 

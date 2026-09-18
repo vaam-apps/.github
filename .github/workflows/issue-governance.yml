@@ -54,7 +54,7 @@ jobs:
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app
         with:
-          app-id: ${{ secrets.app-client-id }}
+          client-id: ${{ secrets.app-client-id }}
           private-key: ${{ secrets.app-private-key }}
 
       - name: Validate
