@@ -27,6 +27,15 @@ on:
         type: string
         required: false
         default: "**/node_modules,**/target,**/.git"
+      upload-sarif:
+        description: >-
+          Upload findings to code scanning. Must be false on a private repo
+          without GitHub Advanced Security: code scanning is a GHAS feature
+          there, so the upload fails outright. The job still gates on severity,
+          it just reports in the log instead of the Security tab.
+        type: boolean
+        required: false
+        default: true
     secrets:
       app-client-id:
         required: true
@@ -68,6 +77,7 @@ jobs:
           exit-code: "0"
 
       - uses: github/codeql-action/upload-sarif@977e6ceaea7361825998245d787fa3b4d6b9e5df # codeql-bundle-v2.27.0
+        if: inputs.upload-sarif
         with:
           sarif_file: trivy.sarif
           category: trivy-fs
