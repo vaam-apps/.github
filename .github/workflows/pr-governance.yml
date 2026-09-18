@@ -1,0 +1,238 @@
+# Validates a pull request's body against the adorsys-gis ai-governance PR
+# template (docs/04-pull-request-template) — the org-wide default shipped at
+# .github/PULL_REQUEST_TEMPLATE.md in this repo.
+#
+# It checks the three requirements the framework's OWN reusable check
+# (ADORSYS-GIS/ai-governance's governance-check.yml) treats as blocking, not
+# every heading in the template. That restraint is the point, same as
+# issue-governance.yml's own: a validator that rejects every real PR gets
+# switched off within a week, and then nothing is checked at all. The
+# blocking set, ported faithfully from governance-check.yml's own logic:
+#
+#   AI Usage Declaration   a real, CHECKED AI-usage option (or "Not used") —
+#                         the heading alone is not enough, and a
+#                         Human-verification tick alone does not count
+#   Source of truth       a real URL or #123 reference, scoped to the
+#                         summary/intent area (before Verification /
+#                         Screenshots / Evidence) — an evidence-only link or
+#                         the boilerplate governance site URL does not count
+#   Verification          the section must contain REAL evidence — a
+#                         checked box, a non-placeholder code block, or a
+#                         real link — scoped to that section, so an
+#                         untouched template's placeholder fences don't
+#                         satisfy it
+#
+# Automated PRs (release-please, Dependabot, Renovate, ...) authenticate as a
+# bot/App and cannot fill a human-accountability template — skipped the same
+# way governance-check.yml skips them: reported as exempt (pass), not
+# silently ignored, so a required status check still goes green.
+name: PR governance (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      enforce:
+        description: "Label and comment on a non-conforming PR. False = annotate the run only."
+        type: boolean
+        required: false
+        default: true
+      label:
+        type: string
+        required: false
+        default: "governance:incomplete"
+      exempt-labels:
+        description: "Comma-separated labels that skip validation entirely."
+        type: string
+        required: false
+        default: ""
+    secrets:
+      app-client-id:
+        required: true
+      app-private-key:
+        required: true
+
+permissions: {}
+
+jobs:
+  validate:
+    name: Structure
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          client-id: ${{ secrets.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+
+      - name: Validate
+        id: check
+        env:
+          # The PR body reaches the script through the environment, never
+          # through `${{ }}` inside a run: block. `${{ }}` is textual
+          # substitution, and a PR body is attacker-controlled text.
+          BODY: ${{ github.event.pull_request.body }}
+          TITLE: ${{ github.event.pull_request.title }}
+          AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          EXEMPT: ${{ inputs.exempt-labels }}
+        run: |
+          python3 - <<'PY' >>"$GITHUB_OUTPUT"
+          import os, re, json
+
+          body = os.environ.get("BODY") or ""
+          title = os.environ.get("TITLE") or ""
+          author_type = os.environ.get("AUTHOR_TYPE") or ""
+          labels = {l.strip().lower() for l in (os.environ.get("LABELS") or "").split(",") if l.strip()}
+          exempt = {l.strip().lower() for l in (os.environ.get("EXEMPT") or "").split(",") if l.strip()}
+
+          # Automated PRs (release-please, Dependabot, Renovate, ...) authenticate as a
+          # GitHub App/bot and cannot fill a human-accountability template. The
+          # framework's own reusable check (governance-check.yml) skips them the same
+          # way: pass, not skip, so a required status check still goes green.
+          if author_type.lower() == "bot":
+              print("status=exempt"); print("reason=authored by a bot/App (release-please, Dependabot, Renovate, ...)")
+              raise SystemExit(0)
+
+          if labels & exempt:
+              print("status=exempt"); print(f"reason=carries an exempt label ({', '.join(sorted(labels & exempt))})")
+              raise SystemExit(0)
+
+          CHECKBOX = re.compile(r"[-*]\s*\[[xX]\]")
+          URL_OR_REF = re.compile(r"(https?://\S+)|(^|[^\w#])#\d+")
+          BOILERPLATE = re.compile(r"https?://(www\.)?adorsys-gis\.github\.io/ai-governance\S*", re.I)
+          PLACEHOLDER = re.compile(r"\[[^\]\n]+\]")
+
+          def strip_placeholders(s):
+              return PLACEHOLDER.sub("", s)
+
+          def has_real_ref(text):
+              stripped = BOILERPLATE.sub("", strip_placeholders(text))
+              return bool(URL_OR_REF.search(stripped))
+
+          def section_text(heading_pat):
+              """Fence-aware: text under the first ATX heading whose title matches
+              heading_pat, up to the next heading. A ``` fence toggles an 'inside
+              code block' state, so a shell comment like '# fmt' at column 0 inside a
+              fence is never mistaken for a heading."""
+              lines = body.splitlines()
+              capturing = False
+              in_fence = False
+              out = []
+              for line in lines:
+                  if re.match(r"^\s*```", line):
+                      in_fence = not in_fence
+                  h = None if in_fence else re.match(r"^#{1,6}\s+(.*\S)\s*$", line)
+                  if h:
+                      if capturing:
+                          break
+                      if re.search(heading_pat, h.group(1), re.I):
+                          capturing = True
+                      continue
+                  if capturing:
+                      out.append(line)
+              return "\n".join(out)
+
+          def has_real_code_block(text):
+              fences = re.findall(r"```[\s\S]*?```", text)
+              for f in fences:
+                  inner = re.sub(r"^```[^\n]*\n?", "", f)
+                  inner = re.sub(r"```\s*$", "", inner)
+                  if strip_placeholders(inner).strip():
+                      return True
+              return False
+
+          def intent_area_text():
+              """Everything before the first Verification/Screenshots/Evidence
+              heading, fence-aware for the same reason as section_text."""
+              lines = body.splitlines()
+              in_fence = False
+              out = []
+              for line in lines:
+                  if re.match(r"^\s*```", line):
+                      in_fence = not in_fence
+                  if not in_fence and re.match(r"^#{1,6}\s+.*\b(?:verification|screenshots?|evidence)\b", line, re.I):
+                      break
+                  out.append(line)
+              return "\n".join(out)
+
+          missing = []
+
+          # 1. AI Usage Declaration -- heading AND a checked AI-usage option. The
+          # distributed template nests "Human verification" under the SAME heading, so
+          # scope the required tick to the options that precede it -- otherwise
+          # ticking only "I accept responsibility" would satisfy this.
+          if not re.search(r"ai\s+usage\s+declaration", body, re.I):
+              missing.append("an **AI Usage Declaration** section.")
+          else:
+              ai_section = section_text(r"ai\s+usage\s+declaration")
+              hv = re.search(r"human\s+verification", ai_section, re.I)
+              ai_options = ai_section[: hv.start()] if hv else ai_section
+              if not CHECKBOX.search(ai_options):
+                  missing.append('a **checked AI-usage option** — tick what AI was used for, or "Not used" (a Human-verification tick alone does not count).')
+
+          # 2. Source-of-truth reference, scoped to the intent area (everything before
+          # Verification/Screenshots/Evidence) so an evidence-only link cannot stand in
+          # for the ticket/decision that justifies the work.
+          if not has_real_ref(intent_area_text()):
+              missing.append("a **source-of-truth reference** in the summary/intent — a URL or a `#123` issue/PR reference (an evidence-only or boilerplate governance link does not count).")
+
+          # 3. Verification section with real evidence, scoped to the section.
+          if not re.search(r"verification", body, re.I):
+              missing.append("a **Verification** section.")
+          else:
+              ver = section_text(r"verification")
+              if not (CHECKBOX.search(ver) or has_real_code_block(ver) or has_real_ref(ver)):
+                  missing.append("**verification evidence inside the Verification section** — a checked box, real command output, or a link (untouched template placeholders do not count).")
+
+          print(f"status={'fail' if missing else 'pass'}")
+          print("problems<<EOF")
+          for m in missing:
+              print(f"- {m}")
+          print("EOF")
+          PY
+
+      - name: Report
+        if: always() && steps.check.outputs.status != 'exempt'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          STATUS: ${{ steps.check.outputs.status }}
+          PROBLEMS: ${{ steps.check.outputs.problems }}
+          ENFORCE: ${{ inputs.enforce }}
+          LABEL: ${{ inputs.label }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          MARKER="<!-- vaam-apps:pr-governance -->"
+          if [ "$STATUS" = "pass" ]; then
+            echo "::notice title=PR governance::Conforms to the ai-governance pull request template."
+            [ "$ENFORCE" = "true" ] && gh pr edit "$PR" --repo "$REPO" --remove-label "$LABEL" 2>/dev/null || true
+            exit 0
+          fi
+
+          echo "::warning title=PR governance::Does not conform to the ai-governance pull request template."
+          printf '%s\n' "$PROBLEMS"
+          [ "$ENFORCE" != "true" ] && exit 0
+
+          BODY=$(printf '%s\n\n**This PR description does not yet meet the [ai-governance](https://adorsys-gis.github.io/ai-governance/) pull request template.**\n\n%s\n\nTemplate: [pull request template](https://adorsys-gis.github.io/ai-governance/04-pull-request-template)\n\n> AI may accelerate the work, but it must not launder ignorance into polished artifacts.\n> See: https://adorsys-gis.github.io/ai-governance/\n\nEdit the PR description and this check re-runs; the label clears itself.\n' "$MARKER" "$PROBLEMS")
+
+          # One comment, kept updated — not a new one on every edit. PRs are
+          # issues under the hood for the comments API, same as issue-governance.yml.
+          EXISTING=$(gh api "repos/$REPO/issues/$PR/comments" --jq \
+            "[.[] | select(.body | contains(\"$MARKER\"))] | .[0].id // empty")
+          if [ -n "$EXISTING" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$EXISTING" -f body="$BODY" >/dev/null
+          else
+            gh pr comment "$PR" --repo "$REPO" --body "$BODY"
+          fi
+          gh pr edit "$PR" --repo "$REPO" --add-label "$LABEL"
+
+      - name: Explain a permission failure
+        if: failure()
+        run: |
+          echo "::error title=PR governance::If this failed with 'Resource not accessible by integration',"
+          echo "the vaam-apps App is missing 'pull-requests: write' on this installation."
+          echo "(At the time this workflow was written the App already held pull_requests: write"
+          echo "— see this repo's own README — so this should not recur unless that grant changes.)"
