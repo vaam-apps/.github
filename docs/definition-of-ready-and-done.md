@@ -38,6 +38,14 @@ A ticket is Ready only when every mandatory criterion below is satisfied.
 - [ ] The assignee knows who to ask for clarification.
 - [ ] AI-generated content has been reviewed by a human.
 
+**"Linked" means linked to something real.** In order of preference: this
+repo's own architecture document or an ADR, an external design doc or spec,
+or a tracked issue that itself cites one of those — see
+[`GOVERNANCE.md`](../GOVERNANCE.md#architecture-documentation-is-the-preferred-source-of-truth)
+for the full ordering. `issue-governance.yml` can only confirm the section
+holds something link-shaped, not that it points at the right thing — that
+distinction is the triager's job, every time.
+
 ### Human understanding check
 
 Before a ticket enters a sprint or is picked up as work, one human must be

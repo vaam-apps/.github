@@ -13,7 +13,8 @@ That's the rule this org runs on. What it means concretely, and what's
 actually checked by a workflow versus by a human, is written down here:
 
 - **[Governance](../GOVERNANCE.md)** — what runs, what it checks, what it
-  doesn't, and how to get an exemption.
+  doesn't, the one-architecture-document-per-repo rule, the SSDLC control
+  map, and how to get an exemption.
 - **[AI working agreement](../docs/ai-working-agreement.md)** — the rules
   contributors follow.
 - **[Definition of Ready & Done](../docs/definition-of-ready-and-done.md)**

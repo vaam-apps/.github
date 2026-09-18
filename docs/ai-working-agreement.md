@@ -59,6 +59,13 @@ the things below.
    able to explain it yourself.
 9. If the source of truth is missing, stop and clarify. Don't let an AI
    assistant invent one to fill the gap in a ticket or a PR description.
+
+   **What counts as a source of truth, in order of preference, is spelled
+   out in [`GOVERNANCE.md`](../GOVERNANCE.md#architecture-documentation-is-the-preferred-source-of-truth):**
+   a repo's own architecture document or ADR first, an external design doc
+   or spec second, a tracked issue that itself cites one of those third. A
+   chat log or an AI-generated summary is never a source of truth on its
+   own, no matter how confident it reads.
 10. If AI gives you confidence without evidence, treat that as a risk
     signal, not a reason to move faster.
 
