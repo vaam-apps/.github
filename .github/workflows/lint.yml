@@ -129,7 +129,13 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          if [ -z "$(git status --porcelain)" ]; then
+          # Decide on TRACKED, unstaged modifications only — which is exactly
+          # what super-linter's fixes are. `git status --porcelain` also reports
+          # untracked files, and super-linter writes its own summary directory
+          # into the workspace, so gating on that saw "changes", produced an
+          # empty `git diff` patch, and failed with a message about rebasing
+          # that had nothing to do with the actual cause.
+          if git diff --quiet; then
             echo "nothing to fix"; exit 0
           fi
 
@@ -139,15 +145,17 @@ jobs:
           git diff > /tmp/superlinter-fixes.patch
           git checkout -q -B superlinter-fixes "$HEAD_SHA"
           if ! git apply --3way /tmp/superlinter-fixes.patch; then
-            echo "::error title=Lint::Fixes would not apply cleanly to the PR head."
-            echo "That means the base branch changed one of the same files. Rebase and re-run."
+            echo "::error title=Lint::Fixes would not apply cleanly onto the PR head commit."
+            echo "The patch was non-empty, so this is a real conflict: the base branch"
+            echo "changed one of the same files. Rebase the PR and re-run."
             exit 1
           fi
 
           git config user.name  "vaam-apps[bot]"
           git config user.email "vaam-apps[bot]@users.noreply.github.com"
-          git add -A
-          git commit -q -m "style: apply super-linter fixes" \
+          # -a, never `add -A`: the latter would sweep super-linter's own output
+          # directory into the commit alongside the fixes.
+          git commit -qam "style: apply super-linter fixes" \
             -m "Markdown, JSON, YAML and shell formatting only. Rust and JS/TS formatting belong to this repository's own clippy and biome configuration."
           git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
             "HEAD:refs/heads/${HEAD_REF}"
