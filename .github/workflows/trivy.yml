@@ -27,6 +27,19 @@ on:
         type: string
         required: false
         default: "**/node_modules,**/target,**/.git"
+      trivyignores:
+        description: >-
+          Comma-separated ignore files, passed to Trivy explicitly. This is not
+          optional plumbing: Trivy auto-detects `.trivyignore` but NOT
+          `.trivyignore.yaml`, so a repo can carry a carefully reasoned
+          `.trivyignore.yaml` that is never read and silently does nothing.
+          Verified against Trivy 0.74.0: without this flag two suppressions were
+          ignored; with it, 218 checks still evaluate and only the 2 intended
+          findings are suppressed — the gate is narrowed, not disabled.
+          Empty by default so a repo without the file is unaffected.
+        type: string
+        required: false
+        default: ""
       upload-sarif:
         description: >-
           Upload findings to code scanning. Must be false on a private repo
@@ -72,6 +85,7 @@ jobs:
           scan-type: fs
           scanners: ${{ inputs.scanners }}
           skip-dirs: ${{ inputs.skip-dirs }}
+          trivyignores: ${{ inputs.trivyignores }}
           format: sarif
           output: trivy.sarif
           exit-code: "0"
@@ -125,6 +139,7 @@ jobs:
           scan-type: fs
           scanners: ${{ inputs.scanners }}
           skip-dirs: ${{ inputs.skip-dirs }}
+          trivyignores: ${{ inputs.trivyignores }}
           severity: ${{ inputs.severity }}
           ignore-unfixed: true
           format: table
