@@ -59,6 +59,28 @@ jobs:
           client-id: ${{ secrets.app-client-id }}
           private-key: ${{ secrets.app-private-key }}
 
+      # TEMPORARY DIAGNOSTIC. The upload 404s while a user token gets 422 on the
+      # same endpoint, so the repository is fine and the App token is not. This
+      # asks the token directly, because nothing else can: an installation token
+      # cannot be minted outside a workflow without handling the private key.
+      - name: What can this token actually reach?
+        env:
+          TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          probe() {
+            printf '  %-46s %s\n' "$1" \
+              "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" \
+                 -H 'Accept: application/vnd.github+json' "${@:2}")"
+          }
+          probe "GET /installation/repositories"  https://api.github.com/installation/repositories
+          probe "GET this repo"                   "https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          probe "GET code-scanning/analyses"      "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/analyses"
+          probe "POST code-scanning/sarifs (422 = ok)" -X POST -d '{}' \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/sarifs"
+          echo "  --- app identity behind this token ---"
+          curl -s -H "Authorization: Bearer $TOKEN" https://api.github.com/installation/repositories \
+            | head -c 200 || true
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

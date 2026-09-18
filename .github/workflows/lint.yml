@@ -109,9 +109,10 @@ jobs:
           VALIDATE_GITHUB_ACTIONS_ZIZMOR: true
 
           # --- fixes, where the tool can apply one safely ---
+          # Only fixes whose matching VALIDATE_ is enabled above. Super-linter
+          # treats a mismatch as a fatal configuration error, not a warning.
           FIX_MARKDOWN: ${{ steps.mode.outputs.fix }}
           FIX_JSON: ${{ steps.mode.outputs.fix }}
-          FIX_YAML_PRETTIER: ${{ steps.mode.outputs.fix }}
           FIX_SHELL_SHFMT: ${{ steps.mode.outputs.fix }}
 
       - name: Commit fixes onto the PR branch
