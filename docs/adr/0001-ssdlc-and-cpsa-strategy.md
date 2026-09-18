@@ -107,11 +107,11 @@ out of scope, provided it is generated.
 this rule they are one ADR at `docs/adr/`, and the RFC's undecided parts are
 further ADRs with `Status: Proposed` — not a parallel `design/` directory.
 
-### 2. Five mandatory arc42 sections. The other seven are optional.
+### 2. Six mandatory arc42 sections. The other six are optional.
 
 arc42 declares exactly one of its twelve sections non-optional — §5, the
 Building Block View. Twelve mandatory sections *is* the overload this ADR guards
-against, so the floor is set at five, not twelve and not one:
+against, so the floor is set at six, not twelve and not one:
 
 | § | Section | Why mandatory |
 |---|---|---|
@@ -120,11 +120,15 @@ against, so the floor is set at five, not twelve and not one:
 | 5 | Building Block View — **level 1 only** | arc42's own mandatory section. Tip 5-3 notes level-1 "very often remains quite stable over time" with "little volatility"; deeper levels are optional because their maintenance cost is not stable |
 | 8 | Crosscutting Concepts | Where the GDPR table (§5 below) and the extension-point contracts (§4 below) live |
 | 10 | Quality Requirements | Scenarios, not adjectives. See §3 below |
+| 11 | Risks and Technical Debt | Nearly free, and a known-broken, unfinished, or unverified thing left unstated is worse than one that is stated — the same reasoning decision 6 below applies to the 60 untriaged alerts this ADR opens with |
 
 §9 Architecture Decisions is satisfied by the existence of `docs/adr/` and needs
-no prose section. §11 Risks and Technical Debt is strongly recommended and cheap,
-but is not on the mandatory list — see Open questions, which records a live
-conflict with `GOVERNANCE.md` on exactly this point.
+no prose section — decision 1 above already makes that directory mandatory, so
+a §9 that only points back at it would duplicate an artifact rather than add
+one. §4 Solution Strategy stays optional: in a repo small enough for a one-page
+architecture document it typically restates §1 and §5 rather than adding
+content. See Open questions for the full reconciliation with `GOVERNANCE.md`,
+which originally mandated §4 and §9 instead of §8 and §11.
 
 Match the content a section carries, not its heading text. A repo whose whole
 architecture fits on one page may satisfy §1/§3/§5 in three paragraphs; that is
@@ -267,7 +271,7 @@ cost is hours rather than weeks.
 | Step | Work | Why here |
 |---|---|---|
 | a | **Triage the 60 open alerts.** No document, no template, no migration | The cheapest real security win available. It needs none of the rest of this ADR to start, and it is the only step whose value does not depend on the others landing |
-| b | **`fyi` becomes the reference implementation** — add §10 with scenarios and fitness functions, add §11, renumber Glossary to §12 | Smallest delta to the target: already arc42-numbered, already one file, already carries four of the five mandatory sections. The missing one is §10, which makes it the ideal place to work out what a good §10 looks like |
+| b | **`fyi` becomes the reference implementation** — add §10 with scenarios and fitness functions, add §11, renumber Glossary to §12 | Smallest delta to the target: already arc42-numbered, already one file, already carries four of the six mandatory sections. The missing two are §10 and §11, which is why the plan already adds both above |
 | c | **`vpay`** — keep all 22 ADRs unchanged; fold `rfc/` and `open-decisions.md` into them as `Proposed`; fold `flows/` and `reference/` into `docs/architecture.md`; retire `plans/` | Highest sprawl, but also the most existing value. The ADRs are already in the target format; nothing about them changes |
 | d | **`vsms`** — remap 16 bespoke sections onto arc42; move `docs/design/*-adr.md` into `docs/adr/`; coordinate the GDPR table with open epic #377 rather than duplicating it | Mostly a remap of an already-good document. §4 Security and §6 Provider abstraction become §8; §13 Risks becomes §11; §10 Compliance plus the stale `legal/retention-briefing.md` become the one §8 table, which is #371's deliverable |
 | e | **`vaam-apps`, `image-resizer`, `ui`, `flutter-sign-keypair`** | Least ready, most work. For `ui` and `flutter-sign-keypair` a single page covering §1/§3/§5 may honestly be the whole architecture document, and that is a complete result, not a partial one |
@@ -283,12 +287,12 @@ teaches the wrong lesson.
 | Cost | Detail |
 |---|---|
 | **Migrating `vpay` is disruptive** | Ten doc areas collapse to two. Roughly 60 dated `plans/` subdirectories get deleted or demoted to issues, and someone has to decide which. Links break. `docs/README.md`, which is a router, stops having anything to route to |
-| **A mandatory-section rule will be resisted** | Correctly, sometimes. The answer to "this section is empty" must be allowed to be "then the repo is small," not a filled-in stub. A rule whose result is five stub headings has made things worse |
+| **A mandatory-section rule will be resisted** | Correctly, sometimes. The answer to "this section is empty" must be allowed to be "then the repo is small," not a filled-in stub. A rule whose result is six stub headings has made things worse |
 | **Fitness functions are ongoing maintenance** | Each one is a check that can break, go stale, or be silently disabled. A scenario pointing at a check that no longer runs is worse than `review-only`, because it reads as coverage. This creates a recurring audit obligation the org does not have today |
 | **The GDPR table is work nobody currently owns** | No repo has one. Filling it requires a lawful-basis determination per data item, which is a legal judgment, not an engineering one. Naming an owner per repo is a prerequisite, not a follow-up |
 | **Decision 4 is new build, not documentation** | 4.2 and 4.3 are unmet everywhere. A published, independently versioned `sms-provider` means extracting a crate from a monorepo that currently versions everything in lockstep; a conformance suite means writing one from nothing. This is the decision most likely to be deferred, and deferring it silently is how the seam it protects stays undocumented |
 | **Alert triage is not one-off** | Step (a) is hours. Keeping the count at zero is a standing cost, and the first week after adoption will produce a batch of `dismissed` decisions made under time pressure — exactly the conditions in which a bad dismissal reason gets written |
-| **One document is not automatically a short document** | This rule bounds the *number* of documents, not their length. `vsms`'s single file is already 2,947 lines. Consolidating `vpay` into one file could produce something worse than the ten directories it replaced. §2's five-section floor is the only thing resisting that, and it is a floor, not a ceiling |
+| **One document is not automatically a short document** | This rule bounds the *number* of documents, not their length. `vsms`'s single file is already 2,947 lines. Consolidating `vpay` into one file could produce something worse than the ten directories it replaced. §2's six-section floor is the only thing resisting that, and it is a floor, not a ceiling |
 
 ### Benefits
 
@@ -308,13 +312,18 @@ lawful-basis determination this document cannot make.
 
 ## Alternatives considered
 
-**Adopt `GOVERNANCE.md`'s seven mandatory sections instead of five.** The
-strongest alternative, and the one that is genuinely unresolved — see Open
-questions. `GOVERNANCE.md` mandates §1, §3, §4, §5, §9, §10, §11 and lists §8 as
-optional. This ADR mandates §1, §3, §5, §8, §10. The two agree on four. They
-disagree in both directions, and §8 is not a detail here: decisions 4 and 5 of
-this ADR both place their content in §8, so mandating them while §8 is optional
-is incoherent.
+**Adopt `GOVERNANCE.md`'s seven mandatory sections instead of this ADR's
+original five.** The strongest alternative when this ADR was written, and the
+one Open questions records as resolved rather than rejected outright:
+`GOVERNANCE.md` originally mandated §1, §3, §4, §5, §9, §10, §11 and listed §8
+as optional; this ADR originally mandated §1, §3, §5, §8, §10. The two agreed
+on four and disagreed in both directions — §8 was not a detail, since decisions
+4 and 5 of this ADR both place their content there, so mandating everything in
+`GOVERNANCE.md`'s list while §8 stayed optional was incoherent. The resolution
+did not split the difference: it adopted this ADR's own recommendation below in
+full (§1, §3, §5, §8, §10, §11) — `GOVERNANCE.md`'s §4 and §9 stayed off the
+mandatory list, and `GOVERNANCE.md` itself now defers to this ADR rather than
+carrying a second copy. See Open questions for the full reasoning.
 
 **Make `vsms` the reference implementation.** It has the most mature practice —
 the xtask guards, the reasoned `deny.toml`, the correction-in-place discipline.
@@ -355,10 +364,11 @@ different standards of evidence, and 60 unread alerts.
 
 ## Open questions
 
-**1. Five mandatory sections, or seven?** This ADR and `GOVERNANCE.md` (PR #1)
-disagree, and both are in flight.
+**1. Five mandatory sections, or seven? — Resolved.** This ADR and
+`GOVERNANCE.md` (PR #1) disagreed while both were in flight. The table below
+records what each originally proposed, kept for the record rather than deleted.
 
-| § | This ADR | `GOVERNANCE.md` |
+| § | This ADR (original proposal) | `GOVERNANCE.md` (original proposal) |
 |---|---|---|
 | 1 Introduction and Goals | mandatory | mandatory |
 | 3 Context and Scope | mandatory | mandatory |
@@ -369,13 +379,37 @@ disagree, and both are in flight.
 | 10 Quality Requirements | mandatory | mandatory |
 | 11 Risks and Technical Debt | recommended | mandatory |
 
-**Recommendation:** six — §1, §3, §5, §8, §10, §11. §8 moves to mandatory because
-decisions 4 and 5 depend on it. §11 moves to mandatory because it is nearly free
-and `GOVERNANCE.md` is right that hidden known-broken things are worse than
-stated ones. §9 stays satisfied by the directory rather than duplicated as prose,
-and §4 stays optional because in a small repo it restates §1 and §5. Whichever of
-this ADR and PR #1 merges second must reconcile the other; they must not both
-land as written.
+**Decision:** six mandatory sections — §1, §3, §5, §8, §10, §11 — matching this
+ADR's own original recommendation in full, not a split of the two lists.
+`GOVERNANCE.md` has been updated to stop restating the list and instead point
+at decision 2 of this ADR as the single source of truth, so the two documents
+cannot drift apart again the way they just did.
+
+- **§8 Crosscutting Concepts became mandatory**, reversing `GOVERNANCE.md`'s
+  original "optional": decisions 4 and 5 above both place their content there,
+  so a repo could satisfy `GOVERNANCE.md`'s original seven-section list and
+  still have nowhere to put the extension-point contracts or the GDPR table.
+- **§11 Risks and Technical Debt became mandatory**, matching `GOVERNANCE.md`'s
+  original list: it is nearly free, and `GOVERNANCE.md` is right that a known-
+  broken, unfinished, or unverified thing left unstated is worse than one that
+  is stated — the same reasoning behind triaging rather than hiding the 60 open
+  alerts this ADR opens with.
+- **§4 Solution Strategy stayed optional**, against `GOVERNANCE.md`'s original
+  list: in a repo small enough for a one-page architecture document it
+  typically restates §1 and §5 rather than adding content, and a mandatory
+  section that is routinely a restatement produces exactly the stub-heading
+  failure the Costs table above warns against.
+- **§9 Architecture Decisions stayed satisfied by the existence of
+  `docs/adr/`**, against `GOVERNANCE.md`'s original list: decision 1 above
+  already makes that directory mandatory for every repo, so a prose §9 that
+  only points back at it would duplicate an artifact instead of adding one —
+  the same "evidence over artifacts" reasoning decision 5 states explicitly.
+
+This is unchanged from the recommendation this ADR already recorded here
+before either document merged: six sections, §9 satisfied by the directory
+rather than duplicated as prose, §4 left optional. Whichever of this ADR and
+PR #1 merged second was always going to need to reconcile the other; this
+edit is that reconciliation, not a change of position.
 
 **2. Who owns the GDPR table in each repo?** Unassigned. Lawful basis is a legal
 determination, and under Law No. 2024/017 it is a narrow one — `vsms`'s §10
