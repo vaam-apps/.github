@@ -109,6 +109,13 @@ jobs:
           sarif_file: trivy.sarif
           category: trivy-fs
           token: ${{ steps.app.outputs.token }}
+          # The upload itself works — an analysis lands on the PR ref every time.
+          # What 404s is the processing poll the action runs afterwards, and it
+          # reports that as a token-permission error, which it is not: the same
+          # token passes every probe including POST to this very endpoint.
+          # Not waiting means the findings still reach the Security tab; we just
+          # do not block the job on GitHub finishing its own ingestion.
+          wait-for-processing: false
 
       - name: Gate
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
