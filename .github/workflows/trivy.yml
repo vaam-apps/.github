@@ -36,11 +36,8 @@ on:
         type: boolean
         required: false
         default: true
-    secrets:
-      app-client-id:
-        required: true
-      app-private-key:
-        required: true
+    # No secrets — see sast.yml. GITHUB_TOKEN already carries
+    # security-events: write and is the least-privilege choice here.
 
 permissions: {}
 
@@ -53,12 +50,6 @@ jobs:
       security-events: write
       contents: read
     steps:
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        id: app
-        with:
-          app-id: ${{ secrets.app-client-id }}
-          private-key: ${{ secrets.app-private-key }}
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -81,7 +72,6 @@ jobs:
         with:
           sarif_file: trivy.sarif
           category: trivy-fs
-          token: ${{ steps.app.outputs.token }}
 
       - name: Gate
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -94,8 +84,3 @@ jobs:
           format: table
           exit-code: "1"
 
-      - name: Explain an upload failure
-        if: failure()
-        run: |
-          echo "::error title=Trivy::If this failed uploading SARIF with 'Resource not accessible by integration',"
-          echo "the vaam-apps App is missing 'security_events: write'."
