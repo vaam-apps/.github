@@ -72,15 +72,19 @@ jobs:
           app-id: ${{ secrets.app-client-id }}
           private-key: ${{ secrets.app-private-key }}
 
-      # Check out the PR's real head branch, not the merge commit a
-      # pull_request checkout gives you by default — you cannot push a fix to
-      # a detached merge ref.
+      # Check out the DEFAULT ref — for a pull_request that is GitHub's
+      # synthetic merge commit, and super-linter requires it: it diffs against
+      # that SHA to decide which files changed. Checking out the head branch
+      # instead makes the merge SHA unreachable and super-linter aborts with
+      # "The SHA_REFERENCE reference (…) doesn't exist in this Git repository".
+      #
+      # The fixes are then replayed onto the real head commit below, rather
+      # than committed here on top of the merge — which would quietly pull the
+      # base branch into someone's PR as a side effect of a formatting run.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.ref || github.ref }}
-          token: ${{ steps.app.outputs.token || github.token }}
-          persist-credentials: ${{ steps.mode.outputs.fix == 'true' }}
+          persist-credentials: false
 
       - name: Super-linter
         uses: super-linter/super-linter/slim@4ce20838b8ab83717e78138c5b3a1407148e0918 # v8.7.0
@@ -106,23 +110,36 @@ jobs:
           FIX_YAML_PRETTIER: ${{ steps.mode.outputs.fix }}
           FIX_SHELL_SHFMT: ${{ steps.mode.outputs.fix }}
 
-      - name: Commit fixes
+      - name: Commit fixes onto the PR branch
         if: steps.mode.outputs.fix == 'true'
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          TOKEN: ${{ steps.app.outputs.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          set -euo pipefail
           if [ -z "$(git status --porcelain)" ]; then
             echo "nothing to fix"; exit 0
           fi
+
+          # Replay the fixes onto the real head commit. fetch-depth: 0 on the
+          # merge ref already brought the head commit in — it is one of the
+          # merge's parents — so no extra fetch is needed.
+          git diff > /tmp/superlinter-fixes.patch
+          git checkout -q -B superlinter-fixes "$HEAD_SHA"
+          if ! git apply --3way /tmp/superlinter-fixes.patch; then
+            echo "::error title=Lint::Fixes would not apply cleanly to the PR head."
+            echo "That means the base branch changed one of the same files. Rebase and re-run."
+            exit 1
+          fi
+
           git config user.name  "vaam-apps[bot]"
           git config user.email "vaam-apps[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "style: apply super-linter fixes
-
-          Applied automatically by the org lint workflow. Scope is Markdown,
-          JSON, YAML and shell formatting only — Rust and JS/TS formatting
-          belong to this repo's own clippy/biome configuration."
-          git push
+          git commit -q -m "style: apply super-linter fixes" \
+            -m "Markdown, JSON, YAML and shell formatting only. Rust and JS/TS formatting belong to this repository's own clippy and biome configuration."
+          git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:refs/heads/${HEAD_REF}"
           echo "::notice title=Lint::Pushed formatting fixes. This re-triggers CI once; the next run finds nothing to fix and pushes nothing."
 
       - name: Report-only, and why
