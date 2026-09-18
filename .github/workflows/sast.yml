@@ -34,10 +34,11 @@ on:
         type: boolean
         required: false
         default: false
-    # No secrets. CodeQL uploads with the job's own GITHUB_TOKEN, which holds
-    # security-events: write from the permissions block below — scoped to this
-    # repository, this run, and expiring with it. Routing it through the
-    # org-wide App instead would be strictly more privilege for no capability.
+    secrets:
+      app-client-id:
+        required: true
+      app-private-key:
+        required: true
 
 permissions: {}
 
@@ -56,6 +57,16 @@ jobs:
       matrix:
         language: ${{ fromJSON(inputs.codeql-languages) }}
     steps:
+      # Minted inline, not via a local composite action: `uses: ./…` inside a
+      # REUSABLE workflow resolves against the caller's checkout, not this
+      # repository, so a shared composite here would break every consumer.
+      # Six duplicated lines beat a mechanism that resolves somewhere else.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          app-id: ${{ secrets.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -64,11 +75,19 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: none
+          token: ${{ steps.app.outputs.token }}
 
       - uses: github/codeql-action/analyze@977e6ceaea7361825998245d787fa3b4d6b9e5df # codeql-bundle-v2.27.0
         with:
           category: /language:${{ matrix.language }}
+          token: ${{ steps.app.outputs.token }}
 
+      - name: Explain an upload failure
+        if: failure()
+        run: |
+          echo "::error title=CodeQL::If this failed on upload with 'Resource not accessible by integration',"
+          echo "the vaam-apps App is missing 'security_events: write'. Grant it in the App settings;"
+          echo "no app in this org had it when these workflows were written."
 
   docs:
     if: inputs.docs-globs != ''

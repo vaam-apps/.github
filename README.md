@@ -10,27 +10,30 @@ caller rather than copied into it.
 | `trivy.yml` | deps, secrets, IaC misconfiguration → code scanning | PR |
 | `issue-governance.yml` | issue structure vs. ai-governance templates | issue opened/edited |
 
-## Which token, and why — it is not the same answer everywhere
+## Required first: App permissions
 
-The **vaam-apps** App is used where `GITHUB_TOKEN` is *structurally* incapable,
-and nowhere else. That is one place:
+Everything authenticates as the **vaam-apps** GitHub App, not `GITHUB_TOKEN`.
+That is not style. A push made with `GITHUB_TOKEN` raises no workflow events, so
+a lint auto-fix commit pushed with it lands on the branch and silently fails to
+re-run CI — the same defect that made vsms `v0.3.2` publish nothing at all.
 
-| workflow | token | why |
+At the time these were written the App held only:
+
+```
+contents=write  pull_requests=write  issue_fields=read  issue_types=read  metadata=read
+```
+
+Three grants are needed on top, and each workflow fails loudly naming the one it
+wants rather than degrading quietly:
+
+| grant | needed by | without it |
 |---|---|---|
-| `lint.yml` | **App** | A push made with `GITHUB_TOKEN` raises no workflow events, so an auto-fix commit would land on the branch and silently fail to re-run CI — the defect that made vsms `v0.3.2` publish nothing. Needs `contents: write` + `workflows: write`. |
-| `issue-governance.yml` | **App** | Comments post as the app rather than a generic bot. `GITHUB_TOKEN` would also work; this one is preference, not necessity. Needs `issues: write`. |
-| `sast.yml` | `GITHUB_TOKEN` | Already holds `security-events: write` from the job's own `permissions:` block, scoped to one repository and one run, expiring with it. |
-| `trivy.yml` | `GITHUB_TOKEN` | Same. |
+| `security_events: write` | `sast.yml`, `trivy.yml` | SARIF upload fails; findings exist but reach nobody |
+| `issues: write` | `issue-governance.yml` | cannot comment or label; validation runs and says nothing |
+| `workflows: write` | `lint.yml` | a YAML fix touching `.github/workflows/**` cannot be pushed |
 
-An earlier revision routed SARIF upload through the App too, "for consistency".
-That was wrong in the direction that matters: it demanded an org-wide credential
-where an ephemeral, single-repo one already sufficed. Consistency is not a
-security property.
-
-So the only grants needed are `contents`, `workflows` and `issues` — all held.
-Nothing requires **Code scanning alerts** (`security_events`), which is a
-different permission from *Repository security advisories* and easy to confuse
-with it.
+No app in this org held `security_events` when this was written — check before
+assuming code scanning is covered.
 
 ## Adopting a repo
 
