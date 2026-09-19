@@ -315,7 +315,32 @@ directory of **every** `Cargo.lock` that `git ls-files` finds — not a hardcode
 list, because a fifth copy of "which Rust roots exist" is the duplicated-list
 failure this document keeps describing.
 
-### 9. Concurrency: never cancel a release run
+### 9. Internal path dependencies carry the version too
+
+Found by running a bump rather than reading the schema. A workspace whose
+crates depend on each other by path usually *also* pins a version:
+
+```toml
+vaam-domain  = { path = "...", version = "0.1.0" }
+vaam-backend = { path = "...", version = "0.1.0" }
+```
+
+Annotate only `[workspace.package] version` and the bump produces a lockfile
+that cannot resolve:
+
+```
+failed to select a version for the requirement `vaam-backend = "^0.1.0"`
+```
+
+Every one of those `version = ` fields is its own `extra-file`, in its own
+file, and `cargo metadata` is what surfaces it. In `vaam-apps/vaam-apps` that
+meant `tools/seed-demo/Cargo.toml` as well as the root.
+
+This is why the lockfile-refresh step matters beyond tidiness: it is the thing
+that turns a silently-wrong release PR into a loud one, **on the PR**, before
+anyone merges it.
+
+### 10. Concurrency: never cancel a release run
 
 ```yaml
 concurrency:
@@ -337,7 +362,7 @@ Accepted, and recorded rather than solved: three pushes to `main` in quick
 succession still drop the middle run while pending, and two different tags
 pushed close together still race for `:latest`. Cut one release at a time.
 
-### 10. Ordering: an example that consumes your own package
+### 11. Ordering: an example that consumes your own package
 
 A repo whose example app depends on its own published package cannot bump that
 dependency in the release PR — the version does not exist on npm until minutes
@@ -413,6 +438,17 @@ by accident.
 
    It is also an anchored regex replace, not the reparse-and-reserialise
    `GenericYaml` of trap 2, and it needs no annotation on that file at all.
+
+   **But first ask whether anything already owns that field.** In
+   `vaam-apps/vaam-apps` the right answer turned out to be *don't touch
+   `pubspec.yaml` at all*: `store-release.yml` already bumps its patch on every
+   dispatch and commits it back, and `mobile-platform.yml` restamps the build
+   number from `run_number * 100 + run_attempt` — a mechanism added after a
+   real TestFlight rejection (`altool` 409, duplicate `cfBundleVersion`). That
+   repo had already removed a `push: tags:` trigger for being "a *second*
+   authority for the same fact". A correctly-behaved third writer is still a
+   third writer. `dart` is the right release type when release-please owns the
+   version; it is the wrong tool when something else already does.
 
 ## What is still not closed
 
