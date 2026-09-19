@@ -202,6 +202,14 @@ Not added to any repo by this PR. The mechanism ships here; applying it to a
 real repo — and granting the App `administration` first, since it holds
 nothing there today — is the maintainer's call, on their own timeline.
 
+## Releasing
+
+Adopting these quality workflows is separate from adopting the release
+tooling. For release-please — the config shape, the App-token requirement,
+and the failure modes that report success while publishing nothing — see
+[`docs/releasing.md`](docs/releasing.md). `vaam-apps/vsms` is the reference
+implementation; copy from its real files rather than from any snippet.
+
 ## Known wart
 
 The secrets are still named `RELEASE_PLEASE_*`, which is now a misnomer — they
