@@ -161,6 +161,20 @@ latter, a single-commit PR takes *its commit's* subject as the squash subject,
 so a conventional title can be bypassed by a PR whose one commit was titled
 anything — the lint passes and the release still never sees it.
 
+**And `PR_TITLE` only governs squash merges.** Measured across this org on
+2026-09-19: `vsms` and `vpay` both had `PR_TITLE` set correctly *and* still
+allowed merge commits and rebase merges — as did all seven other repos. A
+merge-commit or rebase merge lands the branch's **individual commit subjects**
+on `main`; the PR title never becomes a commit subject at all. So a branch of
+`wip:` commits merged that way gives release-please nothing it will act on,
+`pr-title.yml` passes, and `ci/commit-message-parse/` validates a squash
+message that was never created.
+
+Setting `PR_TITLE` without also disabling `allow_merge_commit` and
+`allow_rebase_merge` leaves the bypass wide open. Nothing in CI can see which
+merge button someone pressed, so this is a repository setting or it is not
+enforced at all — a natural fit for `sync-repo-settings`.
+
 ### 5. A commit *body* can discard the whole commit
 
 Worse than 4, because the subject is fine. release-please uses
@@ -346,3 +360,13 @@ by accident.
   switches on version-update PRs nobody asked for.
 - **An annotated line in a file the config does not list** is only caught by a
   whole-tree walk that nothing performs.
+- **Merge-commit and rebase merges are still enabled everywhere**, which
+  bypasses the conventional-title mechanism entirely (see trap 4). Closing it
+  means changing a repository setting in every repo — a contributor-visible
+  change, so it is a decision rather than a fix.
+- **Two repos deliberately do not use release-please**: `vpay-skills` and
+  `vsms-skills` version by `vYYYY-MM-DD-<upstream-sha>`, assigned when a human
+  re-verifies the skills against a specific upstream commit. Their own
+  `VERSIONING.md` explains why a semver derived from *this* repo's commit types
+  would assert something untrue. That is a considered exception, not a gap —
+  do not "fix" it.
