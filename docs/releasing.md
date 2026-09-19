@@ -173,7 +173,22 @@ message that was never created.
 Setting `PR_TITLE` without also disabling `allow_merge_commit` and
 `allow_rebase_merge` leaves the bypass wide open. Nothing in CI can see which
 merge button someone pressed, so this is a repository setting or it is not
-enforced at all — a natural fit for `sync-repo-settings`.
+enforced at all.
+
+**Closed 2026-09-19**: all nine repos are squash-only. The canonical shape,
+which `sync-repo-settings` should assert rather than leave to memory:
+
+| setting | value |
+|---|---|
+| `allow_squash_merge` | `true` |
+| `allow_merge_commit` | `false` |
+| `allow_rebase_merge` | `false` |
+| `squash_merge_commit_title` | `PR_TITLE` |
+| `squash_merge_commit_message` | `COMMIT_MESSAGES` |
+
+`COMMIT_MESSAGES` matters as much as `PR_TITLE`: it is what produces the body
+that `ci/commit-message-parse/` reconstructs and parses. Change it and that
+check starts validating a message shape that no longer occurs.
 
 ### 5. A commit *body* can discard the whole commit
 
@@ -360,10 +375,6 @@ by accident.
   switches on version-update PRs nobody asked for.
 - **An annotated line in a file the config does not list** is only caught by a
   whole-tree walk that nothing performs.
-- **Merge-commit and rebase merges are still enabled everywhere**, which
-  bypasses the conventional-title mechanism entirely (see trap 4). Closing it
-  means changing a repository setting in every repo — a contributor-visible
-  change, so it is a decision rather than a fix.
 - **Two repos deliberately do not use release-please**: `vpay-skills` and
   `vsms-skills` version by `vYYYY-MM-DD-<upstream-sha>`, assigned when a human
   re-verifies the skills against a specific upstream commit. Their own
