@@ -265,8 +265,17 @@ only — nothing runs until an adopting repo adds a small caller workflow that
 references it by path and supplies the two `RELEASE_PLEASE_*`-named App
 credentials described there.
 
+## Releasing
+
+Every repo in this org releases through release-please, and the mechanics —
+plus the ten documented ways it has already failed silently here — are in
+[`docs/releasing.md`](docs/releasing.md). Read it before wiring a new repo up
+or debugging a release that "succeeded" and shipped nothing.
+
 ## Related reading
 
+- [`docs/releasing.md`](docs/releasing.md) — how a release actually happens,
+  and every trap found the hard way.
 - [`docs/ai-working-agreement.md`](docs/ai-working-agreement.md) — the rules
   contributors in this org are expected to follow.
 - [`docs/definition-of-ready-and-done.md`](docs/definition-of-ready-and-done.md)
