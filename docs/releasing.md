@@ -89,6 +89,24 @@ same settings page.
 There is deliberately **no fallback** to `GITHUB_TOKEN`. A fallback produces
 exactly the silent publish-nothing release above.
 
+**Scope the token.** `create-github-app-token` with no permission inputs mints
+a token carrying **every permission the App installation holds org-wide** —
+here that is actions, issues, security-events, workflows and more — into a job
+that only opens a PR and pushes a branch. zizmor flags this as `github-app`,
+and it is a real over-scope rather than a false positive:
+
+```yaml
+- uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+  with:
+    client-id: ${{ secrets.RELEASE_PLEASE_APP_CLIENT_ID }}
+    private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+    permission-contents: write
+    permission-pull-requests: write
+```
+
+Those two are all release-please needs — open and update the release PR, push
+its branch, create the tag.
+
 ### 2. A bare string in `extra-files` is not a "generic" updater
 
 This one destroyed files. `extra-files` accepts bare strings, and
@@ -345,6 +363,16 @@ would have dropped super-linter's `extends: markdownlint/style/prettier` preset
 and re-enabled every formatting rule that preset disables, `MD013` line length
 included.
 
+**A lint that only sees changed files cannot tell you your untouched files are
+clean.** super-linter lints the diff. So `vsms`'s own `release-please.yml`
+carried five unpinned actions — `@v3`, `@v5`, `@v7`, `@stable`, `@v2` — in the
+workflow that mints a write-scoped App token, and the gate never once looked at
+it, because the file had not changed since the gate was adopted. It surfaced
+only when another repo copied it and zizmor scanned it as a new file.
+
+Every workflow in every repo that predates the lint's adoption is in that same
+position. A `validate-all` run would find them; nothing schedules one.
+
 **A SHA-pinned caller does not receive upstream fixes.** That is the point of
 pinning. It also means every fix to a reusable workflow here reaches **nobody**
 until each caller is re-pinned, and nothing in this org notices. On 2026-09-18
@@ -369,6 +397,22 @@ by accident.
    same extractions.
 6. For a repo publishing a **new** npm package, do the manual bootstrap publish
    *before* the first release, then attach the Trusted Publisher.
+7. **For a Dart or Flutter package, use `release-type: dart`, not `simple`.**
+   A Flutter `pubspec.yaml` reads `version: 1.2.3+45`, where `+45` is the
+   Android `versionCode` / iOS `CFBundleVersion` and must increase with every
+   store upload. `simple` plus a generic annotation rewrites only the first
+   semver on the line, giving `1.3.0+45` — a **stale build number**, which CI
+   cannot see and the store rejects at submission. The `dart` updater
+   increments it (`src/updaters/dart/pubspec-yaml.ts`, read directly):
+
+   ```js
+   const parsedBuild = parseInt(buildNumber);
+   if (!isNaN(parsedBuild)) {
+     buildNumber = `+${parsedBuild + 1}`;
+   ```
+
+   It is also an anchored regex replace, not the reparse-and-reserialise
+   `GenericYaml` of trap 2, and it needs no annotation on that file at all.
 
 ## What is still not closed
 
