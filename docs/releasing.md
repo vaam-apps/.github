@@ -175,7 +175,11 @@ Setting `PR_TITLE` without also disabling `allow_merge_commit` and
 merge button someone pressed, so this is a repository setting or it is not
 enforced at all.
 
-**Closed 2026-09-19**: all nine repos are squash-only. The canonical shape,
+**Closed 2026-09-19**: all **ten** repos are squash-only. Ten, not nine — the
+first sweep covered the nine public repos and missed `vaam-apps/vaam-apps`,
+which is private. That is the second time in two days an enumeration of this
+org came up one or more short; prefer `gh repo list vaam-apps` over any list
+written down, including this sentence. The canonical shape,
 which `sync-repo-settings` should assert rather than leave to memory:
 
 | setting | value |
@@ -344,7 +348,7 @@ included.
 **A SHA-pinned caller does not receive upstream fixes.** That is the point of
 pinning. It also means every fix to a reusable workflow here reaches **nobody**
 until each caller is re-pinned, and nothing in this org notices. On 2026-09-18
-all nine repos had to be re-pinned **twice**, and both times the need was found
+all nine adopting repos had to be re-pinned **twice**, and both times the need was found
 by accident.
 
 ## Adding release-please to a repo
@@ -375,6 +379,10 @@ by accident.
   switches on version-update PRs nobody asked for.
 - **An annotated line in a file the config does not list** is only caught by a
   whole-tree walk that nothing performs.
+- **Nothing enumerates this org reliably except the API.** Two sweeps on
+  consecutive days each missed a repo — once two skills repos that had never
+  been listed, once the one private repo. Any script that hardcodes the repo
+  list will drift; read `gh repo list vaam-apps` instead.
 - **Two repos deliberately do not use release-please**: `vpay-skills` and
   `vsms-skills` version by `vYYYY-MM-DD-<upstream-sha>`, assigned when a human
   re-verifies the skills against a specific upstream commit. Their own
