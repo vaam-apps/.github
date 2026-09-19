@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/vaam-apps/.github/compare/v0.2.0...v0.2.1) (2026-09-19)
+
+
+### Documentation
+
+* **releasing:** a language release-type derives a component and then cannot tag itself ([bc19b6a](https://github.com/vaam-apps/.github/commit/bc19b6ac4a8b4022b2c791da441185b4a04e1dfb))
+
 ## [0.2.0](https://github.com/vaam-apps/.github/compare/v0.1.0...v0.2.0) (2026-09-19)
 
 
