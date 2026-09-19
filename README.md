@@ -210,6 +210,14 @@ and the failure modes that report success while publishing nothing — see
 [`docs/releasing.md`](docs/releasing.md). `vaam-apps/vsms` is the reference
 implementation; copy from its real files rather than from any snippet.
 
+This repo also runs release-please on itself (`release-please.yml`,
+`release-type: simple`, no `extra-files` — nothing here carries a version
+string), for a curated changelog and a citable tag across its six workflow
+files. It does **not** fix the "nothing notices a stale pin" gap
+`docs/releasing.md`'s own "What is still not closed" section names: every
+caller still pins a full commit SHA, never this repo's tag, and this
+workflow does not touch, notify, or open anything in a consumer repo.
+
 ## Known wart
 
 The secrets are still named `RELEASE_PLEASE_*`, which is now a misnomer — they

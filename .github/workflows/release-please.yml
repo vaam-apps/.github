@@ -1,0 +1,112 @@
+name: release-please
+
+# Proposes the next release of THIS repo (the org's reusable-workflow and
+# governance-doc source) as a pull request, and cuts the tag + GitHub
+# Release when that pull request merges.
+#
+# ---------------------------------------------------------------------------
+# Read this before assuming it fixes the stale-pin problem — it does not
+# ---------------------------------------------------------------------------
+# docs/releasing.md's own "What is still not closed" section names the real
+# pain point: "Nothing notices a stale reusable-workflow pin." On 2026-09-18
+# every consuming repo in this org had to be re-pinned to a new commit SHA
+# TWICE, and both times the need was found by accident — nothing here
+# changes that. Every caller (`lint.yml@<sha>`, `trivy.yml@<sha>`, ...) still
+# pins a full commit SHA, and this workflow does not touch any caller, does
+# not notify anyone, and does not open a single re-pin PR anywhere.
+#
+# What this workflow buys instead is narrower and real: a curated,
+# conventional-commit-derived CHANGELOG.md and a citable `vX.Y.Z` tag, so a
+# human doing a re-pin sweep across the org's nine consumer repos has a
+# "here's what changed" trail to read and cite, instead of reconstructing it
+# from raw `git log` across six workflow files with no grouping by type. The
+# tag itself is NOT a pin target — every caller must keep pinning a commit
+# SHA, never a tag, exactly as today; a tag on this repo is documentation,
+# not a supported `uses: vaam-apps/.github/.github/workflows/X.yml@vY.Z.W`
+# reference.
+#
+# ---------------------------------------------------------------------------
+# Why a GitHub App token and not GITHUB_TOKEN
+# ---------------------------------------------------------------------------
+# This is load-bearing, not hygiene. GitHub deliberately does not raise
+# workflow events for anything done with the default `GITHUB_TOKEN`. With it,
+# the `vX.Y.Z` tag would still be created, but the release PR would get no CI
+# run at all before merge, and — since this repo publishes nothing — the only
+# consequence of that specific failure mode here is a silently un-reviewable
+# release PR, which is exactly the class of gap this org's own release guide
+# exists to name.
+#
+# The App needs, on this repository only: `contents: write` (branches, tags,
+# releases) and `pull-requests: write` — both already granted (see this
+# repo's own README, "Required first: App permissions"). Its id and private
+# key are the organization secrets RELEASE_PLEASE_APP_CLIENT_ID (the App's
+# **Client ID**, `Iv23li…`, not its numeric App ID) and
+# RELEASE_PLEASE_APP_PRIVATE_KEY (visibility: all, so this repo already has
+# both — the same two secrets `lint.yml`/`trivy.yml`/`sast.yml` already
+# consume as `app-client-id`/`app-private-key` inputs). If either is missing
+# the token step fails outright rather than silently falling back to
+# GITHUB_TOKEN.
+#
+# ---------------------------------------------------------------------------
+# Why `release-type: simple`, and why there is no extra-files list at all
+# ---------------------------------------------------------------------------
+# There is no package manifest anywhere in this repo — no Cargo.toml,
+# pubspec.yaml, package.json — and no other file carries a version string
+# for a release to bump. `simple` writes CHANGELOG.md and tries
+# `version.txt` with `createIfMissing: false`, so with no such file (there
+# is none, by design — this repo tracks its version only in
+# .release-please-manifest.json and the tag) that update is silently
+# skipped. There is therefore nothing to list in `extra-files` either.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# Never cancel a run that may be mid-way through opening or updating the
+# release PR. Keyed per ref, for the same reason vsms's own release.yml
+# gives: under a global key, a routine push to main could cancel a still-
+# pending release-please run for a different ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+# The App token below carries every write this workflow performs; the
+# workflow's own GITHUB_TOKEN needs nothing beyond reading the checkout.
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    name: propose the next release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint a GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          # `client-id`, not the deprecated `app-id`. They are DIFFERENT
+          # values on the App's settings page — `app-id` is the numeric
+          # App ID, `client-id` is the `Iv23li…` Client ID — so the secret
+          # is named for the one this input actually wants.
+          client-id: ${{ secrets.RELEASE_PLEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+          # No `owner`/`repositories` input: per the action's own README,
+          # omitting both scopes the token to only the current repository —
+          # the narrowest repo scope available, not the App's whole
+          # installation. Permissions are scoped down explicitly too
+          # (zizmor's `github-app` audit, "dangerous use of GitHub App
+          # tokens": by default this action issues a token carrying every
+          # permission the App holds org-wide, not just what this workflow
+          # uses) to exactly the two this job performs: opening/updating a
+          # branch and PR.
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Open or update the release PR
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
