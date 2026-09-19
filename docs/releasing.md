@@ -340,7 +340,48 @@ This is why the lockfile-refresh step matters beyond tidiness: it is the thing
 that turns a silently-wrong release PR into a loud one, **on the PR**, before
 anyone merges it.
 
-### 10. Concurrency: never cancel a release run
+### 10. A language release-type derives a component, and then cannot tag itself
+
+The quietest failure found so far. Observed on `ui` and `flutter-sign-keypair`
+the first time each cut a release.
+
+`release-type: node` takes a component name from `package.json`; `dart` takes
+one from `pubspec.yaml`. The release PR's title carries no component
+(`chore: release main`), so when release-please goes to tag the merged PR it
+cannot match them:
+
+```
+❯ Found pull request #20: 'chore: release main'
+⚠ PR component: undefined does not match configured component: ui
+⚠ Could not find releases.
+❯ looking for tagName: v0.2.1
+⚠ There are untagged, merged release PRs outstanding - aborting
+```
+
+What that produces: the release PR merges, `CHANGELOG.md` and the manifest are
+written, every check is green, the label stays `autorelease: pending` — and
+**no tag is ever created**, so nothing publishes and nothing reports why. The
+only outward sign is a version in the manifest with no tag to match it.
+
+**`"component": ""` does not fix it.** An empty string is falsy, so the
+manifest-derived default wins anyway. Setting `include-component-in-tag:
+false` does not fix it either — that governs the tag's shape, not the
+PR-matching.
+
+Use **`release-type: simple`** with explicit `extra-files`. It derives no
+component, which is why every repo here using it tagged correctly. Reach for a
+language strategy only when it does something `simple` cannot — and check
+first, because usually it does not: `node` only writes `package.json`'s
+version, which a `{"type": "json", "jsonpath": "$.version"}` entry does
+identically, and `dart`'s build-number increment (step 7 above) is worth
+nothing to a `pubspec.yaml` with no `+build` suffix.
+
+**How to tell you have hit this**, since nothing fails: compare
+`.release-please-manifest.json` against `git tag`. A manifest ahead of the
+newest tag, with a merged release PR still labelled `autorelease: pending`,
+is this. Fix the config and re-run the workflow; it tags retroactively.
+
+### 11. Concurrency: never cancel a release run
 
 ```yaml
 concurrency:
@@ -362,7 +403,7 @@ Accepted, and recorded rather than solved: three pushes to `main` in quick
 succession still drop the middle run while pending, and two different tags
 pushed close together still race for `:latest`. Cut one release at a time.
 
-### 11. Ordering: an example that consumes your own package
+### 12. Ordering: an example that consumes your own package
 
 A repo whose example app depends on its own published package cannot bump that
 dependency in the release PR — the version does not exist on npm until minutes
