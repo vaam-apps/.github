@@ -189,12 +189,34 @@ jobs:
           # Replay the fixes onto the real head commit. fetch-depth: 0 on the
           # merge ref already brought the head commit in — it is one of the
           # merge's parents — so no extra fetch is needed.
+          #
+          # `--force` is load-bearing, not defensive. The fixes are unstaged
+          # working-tree modifications, and a plain `git checkout` CARRIES
+          # those across the switch whenever the file is byte-identical in the
+          # merge commit and the head commit — which is the normal case, since
+          # the base branch usually has not touched the file. `git apply` then
+          # meets a file that already contains the patch and refuses:
+          #
+          #     error: CHANGELOG.md: does not match index
+          #
+          # So the patch conflicted with itself, and the message below blamed
+          # the base branch. Reproduced against a scratch repository where the
+          # base provably never touched the file: it still failed, so a rebase
+          # could not have helped and a re-run reproduced it exactly. Found on
+          # vaam-apps/ui#21, where it failed every release PR that super-linter
+          # had a Markdown fix for.
+          #
+          # The patch is already captured, so discarding the working tree costs
+          # nothing. `--force` only discards the modifications; it does not
+          # touch `git apply --3way` below, which is still the only thing that
+          # decides whether the replay is safe.
           git diff > /tmp/superlinter-fixes.patch
-          git checkout -q -B superlinter-fixes "$HEAD_SHA"
+          git checkout -q --force -B superlinter-fixes "$HEAD_SHA"
           if ! git apply --3way /tmp/superlinter-fixes.patch; then
             echo "::error title=Lint::Fixes would not apply cleanly onto the PR head commit."
-            echo "The patch was non-empty, so this is a real conflict: the base branch"
-            echo "changed one of the same files. Rebase the PR and re-run."
+            echo "git apply's own error is above. The head commit is clean at this"
+            echo "point, so this is a genuine three-way conflict: the base branch"
+            echo "changed the same lines the fix touches. Rebase the PR and re-run."
             exit 1
           fi
 
