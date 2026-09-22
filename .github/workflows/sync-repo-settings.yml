@@ -134,6 +134,13 @@ name: Sync repo settings (reusable)
 on:
   workflow_call:
     inputs:
+      # See "Choosing a runner" in the README for why this exists, and for
+      # what a non-default value has to look like.
+      runner:
+        description: "Runner label for this workflow's job. A single label only, not a JSON array."
+        type: string
+        required: false
+        default: ubuntu-latest
       dry-run:
         description: >-
           Plan only. Reads the repo's current ruleset (if any), computes what
@@ -219,7 +226,7 @@ jobs:
     # a push or an admin-scoped write made with GITHUB_TOKEN raises no
     # workflow events and is invisible to anyone relying on that event firing.
     name: Repository ruleset
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions: {}
     steps:

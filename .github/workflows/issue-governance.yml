@@ -21,6 +21,13 @@ name: Issue governance (reusable)
 on:
   workflow_call:
     inputs:
+      # See "Choosing a runner" in the README for why this exists, and for
+      # what a non-default value has to look like.
+      runner:
+        description: "Runner label for this workflow's job. A single label only, not a JSON array."
+        type: string
+        required: false
+        default: ubuntu-latest
       enforce:
         description: "Label and comment on a non-conforming issue. False = annotate the run only."
         type: boolean
@@ -46,7 +53,7 @@ permissions: {}
 jobs:
   validate:
     name: Structure
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
       issues: write
