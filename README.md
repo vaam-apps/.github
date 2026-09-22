@@ -77,6 +77,66 @@ jobs:
 surface in the org (Rust, TypeScript, Docker, Helm, docs) so it exercises every
 path.
 
+## Choosing a runner
+
+Every reusable workflow here takes a `runner` input, `type: string`, defaulting to
+`ubuntu-latest`. A caller that does not set it is unchanged in every respect.
+
+```yaml
+  lint:
+    uses: vaam-apps/.github/.github/workflows/lint.yml@main
+    with:
+      runner: ubuntu-amd-x64   # an ARC pool label, not GitHub-hosted
+    secrets:
+      app-client-id: ${{ secrets.RELEASE_PLEASE_APP_CLIENT_ID }}
+      app-private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+```
+
+**Why it exists.** A GitHub-hosted job does not fail when the account's hosted
+minutes are unavailable — it never runs, and reports that as `conclusion:
+failure` with `steps: 0` and an empty `runner_name`. No log, no annotation,
+nothing naming the cause. In `vaam-apps/vaam-apps` that hit four jobs from
+2026-09-19 onward, two of them named "title is a conventional commit" and "the
+squash message parses as a conventional commit", so a billing problem read as a
+malformed PR title on every open PR for days.
+
+**Why a caller could not fix it alone.** That repo moved its own four jobs to its
+ARC pool. It could not move `lint`, `trivy` or `issue-governance`, because those
+are `uses:` calls into this repository and `runs-on` lives here. Worse than
+merely not helping: with the caller's own gate job green again, the two quality
+jobs it gates went from `skipping` — neutral, and quietly hiding the dependency —
+to dispatched and refused. Adopting a self-hosted pool halfway relocates the
+outage into the org's checks instead of removing it. This input is what makes the
+move complete.
+
+**A single label, not a JSON array.** `runs-on: ${{ inputs.runner }}` takes one
+label. A multi-label target such as `[self-hosted, macOS, ARM64]` needs
+`fromJSON`, which changes the expression for every caller including the ones
+passing a plain string. No caller needs it today, so it is not done — said here
+rather than left to be discovered.
+
+**What a non-hosted runner has to provide**, which is not the same for all six
+and is the part to check before switching one:
+
+| workflow | needs | note |
+|---|---|---|
+| `lint.yml` | **Docker** | `super-linter/super-linter/slim` is a container action: Linux runners only |
+| `trivy.yml` | **Docker** | `aquasecurity/trivy-action`, likewise a container action |
+| `sast.yml` | network, disk | `github/codeql-action` downloads the CodeQL bundle per run |
+| `issue-governance.yml` | `gh`, `jq` | 7 `gh api` calls |
+| `pr-governance.yml` | `gh`, `jq` | 5 `gh api` calls |
+| `sync-repo-settings.yml` | `gh`, `jq`, `python3` | the widest tool surface of the six |
+
+Every one of them also runs `actions/create-github-app-token` and most run
+`actions/checkout`, both plain JavaScript actions that need only the runner's own
+bundled Node.
+
+**Nothing in this repository tests any of these on a self-hosted runner**, and
+this change does not add such a test — the default is unchanged, so the org's own
+CI exercises only the hosted path. A caller switching a workflow over is the
+first real evidence that the target pool satisfies the table above. Switch one at
+a time.
+
 ## Three decisions worth not re-litigating
 
 **Gate with a per-job `if:`, never `on.pull_request.paths`.** Both look

@@ -19,6 +19,13 @@ name: SAST (reusable)
 on:
   workflow_call:
     inputs:
+      # See "Choosing a runner" in the README for why this exists, and for
+      # what a non-default value has to look like.
+      runner:
+        description: "Runner label for this workflow's jobs. A single label only, not a JSON array."
+        type: string
+        required: false
+        default: ubuntu-latest
       codeql-languages:
         description: 'JSON array, e.g. ["rust","javascript-typescript","actions"]. Empty disables CodeQL.'
         type: string
@@ -46,7 +53,7 @@ jobs:
   codeql:
     if: inputs.codeql-languages != '[]'
     name: CodeQL (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     permissions:
       security-events: write
@@ -121,7 +128,7 @@ jobs:
   docs:
     if: inputs.docs-globs != ''
     name: Docs — link integrity
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     permissions:
       contents: read
