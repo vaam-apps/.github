@@ -73,8 +73,22 @@ jobs:
       security-events: write
       contents: read
     steps:
+      # Only when there is something to authenticate. The token exists for one
+      # step — the SARIF upload below — which is itself gated on
+      # `upload-sarif`. Minting it unconditionally made a caller that passes
+      # `upload-sarif: false` depend on credentials it never uses, and that is
+      # not hypothetical: in `vaam-apps/vaam-apps` this step failed first,
+      # before `checkout`, with
+      #
+      #     The 'client-id' (or deprecated 'app-id') input must be set to a
+      #     non-empty string.
+      #
+      # because a free-plan organization's secrets do not reach a PRIVATE
+      # repository, so `secrets.app-client-id` arrived empty. The whole scan
+      # was skipped for want of a token no step in it would have read.
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app
+        if: inputs.upload-sarif
         with:
           client-id: ${{ secrets.app-client-id }}
           private-key: ${{ secrets.app-private-key }}
