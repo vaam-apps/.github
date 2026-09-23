@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/vaam-apps/.github/compare/v0.2.1...v0.3.0) (2026-09-23)
+
+
+### Features
+
+* **workflows:** every reusable workflow takes a `runner` input ([#15](https://github.com/vaam-apps/.github/issues/15)) ([4340229](https://github.com/vaam-apps/.github/commit/43402298dad535e379ea735ac2179fa211b92916))
+
+
+### Bug Fixes
+
+* **lint:** replay super-linter fixes onto a clean head commit ([#13](https://github.com/vaam-apps/.github/issues/13)) ([01d7a15](https://github.com/vaam-apps/.github/commit/01d7a15ee827152447d3b3b7031fdc8a02d98dd7))
+* **trivy:** mint the App token only when there is a SARIF upload to make ([#16](https://github.com/vaam-apps/.github/issues/16)) ([613f114](https://github.com/vaam-apps/.github/commit/613f114e54197f20f70676d1d6334f71c98362aa))
+
 ## [0.2.1](https://github.com/vaam-apps/.github/compare/v0.2.0...v0.2.1) (2026-09-19)
 
 
