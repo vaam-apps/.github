@@ -1,0 +1,27 @@
+# Guards the SARIF upload steps in sast.yml and trivy.yml against the argv size
+# limit (vaam-apps/.github#17). Runs only when one of the files involved changes.
+name: SARIF upload test
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/sast.yml
+      - .github/workflows/trivy.yml
+      - .github/workflows/sarif-upload-test.yml
+      - ci/sarif-upload/**
+
+permissions: {}
+
+jobs:
+  test:
+    name: SARIF payload survives the argument limit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - run: bash ci/sarif-upload/test.sh

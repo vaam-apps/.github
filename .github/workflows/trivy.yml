@@ -136,9 +136,11 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          payload=$(jq -nc --arg sha "$SHA" --arg ref "$REF" \
-            --arg sarif "$(gzip -c trivy.sarif | base64 -w0)" \
-            '{commit_sha:$sha, ref:$ref, sarif:$sarif, tool_name:"Trivy"}')
+          # The base64 SARIF goes to jq on stdin (-Rs), never as --arg: an
+          # argument lives on argv, and past ARG_MAX execve fails with E2BIG
+          # ("Argument list too long"). Same fix as sast.yml.
+          payload=$(gzip -c trivy.sarif | base64 -w0 | jq -Rsc --arg sha "$SHA" --arg ref "$REF" \
+            '{commit_sha:$sha, ref:$ref, sarif:., tool_name:"Trivy"}')
 
           code=$(curl -sS -o /tmp/upload.json -w '%{http_code}' -X POST \
             -H "Authorization: Bearer $TOKEN" \
